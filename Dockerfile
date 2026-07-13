@@ -1,6 +1,6 @@
 # Build context is the fiducia.cloud root. Cross-repository path dependencies
 # are fetched at reviewed commits rather than copied from a moving checkout.
-FROM rust:1.95.0-bookworm AS build
+FROM rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates
 WORKDIR /workspace
@@ -23,7 +23,7 @@ RUN cargo build --release --locked --manifest-path fiducia-ai-agent-manager.rs/C
 # base keeps Git/SSH/gh + certs. Layer your agent toolchain on top. This is an
 # explicit tooling-runtime exception to the otherwise-distroless service policy: the
 # worker must spawn Git and provider CLIs, but it still runs without root.
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
 LABEL org.fiducia.runtime-profile="tool-runner-nonroot"
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates gh git openssh-client \
