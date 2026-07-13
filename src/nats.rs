@@ -29,11 +29,13 @@ impl Nats {
                 let url = self.url.clone()?;
                 match async_nats::connect(&url).await {
                     Ok(c) => {
-                        tracing::info!(%url, "connected to NATS");
+                        // NATS URLs may contain userinfo credentials; never emit
+                        // the configured URL or transport error text.
+                        tracing::info!("connected to NATS");
                         Some(c)
                     }
-                    Err(e) => {
-                        tracing::warn!(error = %e, %url, "NATS connect failed; events will no-op");
+                    Err(_) => {
+                        tracing::warn!("NATS connect failed; events will no-op");
                         None
                     }
                 }
@@ -66,7 +68,9 @@ impl Nats {
     /// Disposable live progress → Core NATS (at-most-once, low latency).
     pub async fn publish_live(&self, subject: &str, payload: &[u8]) {
         if let Some(client) = self.client().await {
-            let _ = client.publish(subject.to_string(), payload.to_vec().into()).await;
+            let _ = client
+                .publish(subject.to_string(), payload.to_vec().into())
+                .await;
         }
     }
 }

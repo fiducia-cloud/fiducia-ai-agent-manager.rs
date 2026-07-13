@@ -71,7 +71,10 @@ impl AgentProvider {
 
     /// A short human label (`modelLabel` fallback).
     pub fn display_name(&self) -> String {
-        self.as_str().replace("-sdk", "").replace("-cli", "").replace('-', " ")
+        self.as_str()
+            .replace("-sdk", "")
+            .replace("-cli", "")
+            .replace('-', " ")
     }
 
     /// Only gemini-sdk is forbidden from editing the workspace
@@ -93,7 +96,10 @@ impl AgentProvider {
 
 /// Resolve the provider for a task: a valid per-task override wins, else the
 /// boot default (`resolveAgentProvider`).
-pub fn resolve_agent_provider(per_task_override: Option<&str>, default: AgentProvider) -> AgentProvider {
+pub fn resolve_agent_provider(
+    per_task_override: Option<&str>,
+    default: AgentProvider,
+) -> AgentProvider {
     per_task_override
         .and_then(AgentProvider::parse)
         .unwrap_or(default)
@@ -145,7 +151,12 @@ impl CliRunner {
         let (default_program, base_args): (&str, Vec<String>) = match provider {
             AgentProvider::ClaudeCli | AgentProvider::ClaudeSdk => (
                 "claude",
-                vec!["-p".into(), "--output-format".into(), "stream-json".into(), "--verbose".into()],
+                vec![
+                    "-p".into(),
+                    "--output-format".into(),
+                    "stream-json".into(),
+                    "--verbose".into(),
+                ],
             ),
             AgentProvider::OpenaiCodexCli => ("codex", vec!["exec".into(), "--json".into()]),
             _ => ("opencode", vec!["run".into()]),
@@ -237,7 +248,10 @@ impl AgentRunner for CliRunner {
             Err(format!(
                 "{} exited with status {}",
                 self.program,
-                status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into())
+                status
+                    .code()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".into())
             ))
         }
     }
@@ -259,11 +273,16 @@ pub fn build_agent_env(provider: AgentProvider) -> HashMap<String, String> {
             &["ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"]
         }
         AgentProvider::GeminiSdk => &["GEMINI_API_KEY", "GEMINI_MODEL", "GOOGLE_API_KEY"],
-        AgentProvider::OpenaiCodexCli | AgentProvider::OpenaiSdk => {
-            &["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL", "CODEX_MODEL"]
-        }
+        AgentProvider::OpenaiCodexCli | AgentProvider::OpenaiSdk => &[
+            "OPENAI_API_KEY",
+            "OPENAI_MODEL",
+            "OPENAI_BASE_URL",
+            "CODEX_MODEL",
+        ],
         AgentProvider::OpencodeAiSdk => &["OPENCODE_API_KEY", "OPENCODE_MODELS", "OPENCODE_MODEL"],
-        AgentProvider::GenericAiSdk => &["GENERIC_AI_SDK_MODELS", "OPENAI_API_KEY", "OPENAI_BASE_URL"],
+        AgentProvider::GenericAiSdk => {
+            &["GENERIC_AI_SDK_MODELS", "OPENAI_API_KEY", "OPENAI_BASE_URL"]
+        }
     };
     for key in forward {
         if let Ok(v) = std::env::var(key) {

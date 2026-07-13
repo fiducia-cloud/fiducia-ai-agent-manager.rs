@@ -99,15 +99,16 @@ the provider that needs them.
 
 ### flags-2-env
 
-CLI flags map to these env vars through the pinned
+Non-secret operational flags map to environment variables through the pinned
 [`flags-2-env`](https://github.com/ORESoftware/flags-2-env) parser
 (`vendor/flags-2-env` submodule, schema in `.cli-flags.toml`, audited in CI by
-`.github/workflows/cli-flags.yml`):
+`.github/workflows/cli-flags.yml`). Credentials, repository URLs, and service
+URLs remain environment-only so they cannot leak through process arguments:
 
 ```sh
 git submodule update --init --recursive
 make -C vendor/flags-2-env all
-scripts/with-flags2env.sh --port 8080 --nats-url nats://localhost:4222 -- \
+scripts/with-flags2env.sh --port 8080 --log-format json -- \
   ./target/release/fiducia-ai-agent-manager
 ```
 
@@ -118,15 +119,8 @@ accepted on argv.
 
 ## Security
 
-- **Audit:** `cargo audit` is green (`cargo audit` exits 0). See
-  `.cargo/audit.toml` for four accepted `rustls-webpki` 0.102.8 advisories
-  (RUSTSEC-2026-0104 / 0098 / 0099 / 0049). They are reached only through
-  `async-nats v0.38.0` (which hard-pins `rustls-webpki ^0.102`); the fix requires
-  async-nats ≥ 0.49, a breaking major bump, so it is accepted with rationale
-  rather than forced. The reqwest/HTTP TLS path already uses the patched 0.103.13.
-  The residual webpki only verifies the trusted internal NATS broker's TLS cert.
-  `rustls-pemfile` (RUSTSEC-2025-0134) is an informational "unmaintained" warning
-  reached via reqwest; it is not a vulnerability.
+- **Audit:** `cargo audit` runs without advisory exceptions. NATS uses the
+  current `async-nats` TLS stack with `rustls-webpki` 0.103.x.
 - **Auth:** every mutating route is gated by `X-Server-Auth`; the guard is
   **fail-closed** — requests are rejected with `401` when the secret is
   unconfigured or mismatched.

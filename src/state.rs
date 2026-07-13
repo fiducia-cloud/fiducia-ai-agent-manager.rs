@@ -80,7 +80,8 @@ impl AppState {
     /// routing it through the bus (replay + live + ingest + log + NATS).
     pub fn emit(&self, task: &Arc<TaskState>, mut event: Value) {
         if let Value::Object(ref mut m) = event {
-            m.entry("provider").or_insert_with(|| Value::String(task.provider.as_str().into()));
+            m.entry("provider")
+                .or_insert_with(|| Value::String(task.provider.as_str().into()));
         }
         let seq = task.next_seq();
         self.bus.emit(BusEvent {
@@ -102,7 +103,9 @@ impl AppState {
             let tasks = self.tasks.lock();
             tasks
                 .values()
-                .filter(|t| t.is_finished() && (*t.finished_at.lock()).is_some_and(|ts| ts < cutoff))
+                .filter(|t| {
+                    t.is_finished() && (*t.finished_at.lock()).is_some_and(|ts| ts < cutoff)
+                })
                 .map(|t| t.task_id.clone())
                 .collect()
         };

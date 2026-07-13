@@ -9,11 +9,13 @@ columns = ["options", "env", "type", "description"]
 
 [parse]
 allow_unknown = false
+unknown_options_env = "FLAGS2ENV_UNKNOWN_OPTIONS"
+errors_env = "FLAGS2ENV_PARSE_ERRORS"
 
+# Credentials and URLs that may embed credentials stay environment-only so
+# they never appear in argv, process listings, shell history, or help output.
 [env]
-# Control-plane and direct-node credentials are environment/secret-manager only:
-# accepting them on argv would expose them through process listings.
-ignore = ["FIDUCIA_CONTROL_PLANE_SECRET", "FIDUCIA_INTERNAL_SECRET", "FIDUCIA_NODE_INTERNAL_SECRET"]
+ignore = ["FIDUCIA_REPO_URL", "DD_REPO_URL", "NATS_URL", "EVENT_INGEST_URL", "SERVER_AUTH_SECRET", "FIDUCIA_CONTROL_PLANE_SECRET", "FIDUCIA_INTERNAL_SECRET", "FIDUCIA_NODE_INTERNAL_SECRET", "EVENT_INGEST_SECRET", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENCODE_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "GH_PAT", "GH_DEPLOY_KEY"]
 
 [flags.host]
 env = "HOST"
@@ -32,12 +34,6 @@ env = "WORKSPACE_REPO"
 aliases = ["workspace-repo"]
 type = "string"
 help = "Path to the warm, configured git checkout every task shares."
-
-[flags.repo-url]
-env = "FIDUCIA_REPO_URL"
-aliases = ["repo-url"]
-type = "string"
-help = "Remote git URL to clone/sync the workspace from (also DD_REPO_URL)."
 
 [flags.base-branch]
 env = "BASE_BRANCH"
@@ -69,12 +65,6 @@ aliases = ["thread-id"]
 type = "string"
 help = "Thread this worker is pinned to (also THREAD_ID)."
 
-[flags.nats-url]
-env = "NATS_URL"
-aliases = ["nats-url"]
-type = "string"
-help = "NATS server URL for live progress + durable execution events."
-
 [flags.nats-event-subject]
 env = "NATS_EVENT_SUBJECT"
 aliases = ["nats-event-subject"]
@@ -99,12 +89,6 @@ aliases = ["fiducia-node-org-id"]
 type = "string"
 help = "Tenant scope shared with the control plane (default fiducia-ai-control-plane)."
 
-[flags.event-ingest-url]
-env = "EVENT_INGEST_URL"
-aliases = ["event-ingest-url"]
-type = "string"
-help = "Optional Vercel-style event ingest endpoint."
-
 [flags.outputs-dir]
 env = "OUTPUTS_DIR"
 aliases = ["outputs-dir"]
@@ -122,15 +106,3 @@ env = "LOG_FORMAT"
 aliases = ["log-format"]
 type = "string"
 help = "Set to 'json' for structured logs; anything else is human format."
-
-[flags.server-auth-secret]
-env = "SERVER_AUTH_SECRET"
-aliases = ["server-auth-secret"]
-type = "string"
-help = "Shared secret enforced on mutating routes via X-Server-Auth (secret)."
-
-[flags.event-ingest-secret]
-env = "EVENT_INGEST_SECRET"
-aliases = ["event-ingest-secret"]
-type = "string"
-help = "Bearer secret for the event ingest endpoint (secret)."

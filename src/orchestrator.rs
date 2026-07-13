@@ -145,7 +145,12 @@ async fn prepare_session_workspace_inner(
     };
 
     ensure_cancel_active(cancel)?;
-    let current = git::current_branch(cwd).await;
+    let current = match cancel {
+        Some(cancel) => git::current_branch_with_cancel(cwd, cancel)
+            .await
+            .map_err(|e| e.0)?,
+        None => git::current_branch(cwd).await,
+    };
     ensure_cancel_active(cancel)?;
     if current.as_deref() != Some(session.branch.as_str()) {
         let status = match cancel {

@@ -118,7 +118,11 @@ impl EventBus {
             seq: ev.seq,
             event: event.clone(),
         };
-        let kind = event.get("kind").and_then(|k| k.as_str()).unwrap_or("").to_string();
+        let kind = event
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or("")
+            .to_string();
 
         {
             let mut tasks = self.tasks.lock();
@@ -150,7 +154,13 @@ impl EventBus {
         // Side-channels (best-effort, off the hot path).
         self.spawn_ingest(&ev.task_id, ev.seq, &event);
         self.spawn_log_sink(ev.thread_id.clone(), &ev.task_id, ev.seq, &kind, &event);
-        self.spawn_nats(ev.thread_id.clone(), ev.user_id.clone(), &ev.task_id, ev.seq, &event);
+        self.spawn_nats(
+            ev.thread_id.clone(),
+            ev.user_id.clone(),
+            &ev.task_id,
+            ev.seq,
+            &event,
+        );
     }
 
     /// A snapshot of a task's history (seq > `after`) plus a live receiver. The
@@ -162,7 +172,12 @@ impl EventBus {
     ) -> Option<(Vec<StoredEvent>, broadcast::Receiver<StoredEvent>, bool)> {
         let tasks = self.tasks.lock();
         let ch = tasks.get(task_id)?;
-        let history: Vec<StoredEvent> = ch.history.iter().filter(|s| s.seq > after).cloned().collect();
+        let history: Vec<StoredEvent> = ch
+            .history
+            .iter()
+            .filter(|s| s.seq > after)
+            .cloned()
+            .collect();
         Some((history, ch.tx.subscribe(), ch.done))
     }
 
@@ -243,18 +258,34 @@ impl EventBus {
         });
     }
 
-    fn spawn_log_sink(&self, thread_id: Option<String>, task_id: &str, seq: i64, kind: &str, event: &Value) {
+    fn spawn_log_sink(
+        &self,
+        thread_id: Option<String>,
+        task_id: &str,
+        seq: i64,
+        kind: &str,
+        event: &Value,
+    ) {
         let dir = match &thread_id {
             Some(t) => format!("{}/{}", self.log_dir, t),
             None => self.log_dir.clone(),
         };
         let detail = match kind {
-            "status" => format!(" status={}", event.get("status").and_then(|v| v.as_str()).unwrap_or("?")),
+            "status" => format!(
+                " status={}",
+                event.get("status").and_then(|v| v.as_str()).unwrap_or("?")
+            ),
             "error" => {
                 let m = event.get("message").and_then(|v| v.as_str()).unwrap_or("");
                 format!(" message={}", &m[..m.len().min(200)])
             }
-            "done" => format!(" exitReason={}", event.get("exitReason").and_then(|v| v.as_str()).unwrap_or("?")),
+            "done" => format!(
+                " exitReason={}",
+                event
+                    .get("exitReason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+            ),
             _ => String::new(),
         };
         let line = format!(
@@ -269,13 +300,25 @@ impl EventBus {
             let _ = tokio::fs::create_dir_all(&dir).await;
             let path = format!("{dir}/thread.log");
             use tokio::io::AsyncWriteExt;
-            if let Ok(mut f) = tokio::fs::OpenOptions::new().create(true).append(true).open(&path).await {
+            if let Ok(mut f) = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .await
+            {
                 let _ = f.write_all(line.as_bytes()).await;
             }
         });
     }
 
-    fn spawn_nats(&self, thread_id: Option<String>, user_id: Option<String>, task_id: &str, seq: i64, event: &Value) {
+    fn spawn_nats(
+        &self,
+        thread_id: Option<String>,
+        user_id: Option<String>,
+        task_id: &str,
+        seq: i64,
+        event: &Value,
+    ) {
         let nats = self.nats.clone();
         let subject = self.subject.clone();
         let payload = serde_json::json!({
@@ -285,11 +328,29 @@ impl EventBus {
             "seq": seq,
             "event": event,
         });
-        let kind = event.get("kind").and_then(|k| k.as_str()).unwrap_or("event").to_string();
+        let kind = event
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or("event")
+            .to_string();
         tokio::spawn(async move {
             let envelope = MessageEnvelope::new(format!("execution.{kind}"), payload);
             nats.publish_event(&subject, &envelope).await;
         });
+    }
+}
+
+/// Recursively sanitize all string values in an event before it leaves.
+fn sanitize_value(value: &Value) -> Value {
+    match value {
+        Value::String(s) => Value::String(sanitize_event_text(s)),
+        Value::Array(a) => Value::Array(a.iter().map(sanitize_value).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, v)| (k.clone(), sanitize_value(v)))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -378,18 +439,5 @@ mod tests {
         let text = history[0].event["text"].as_str().unwrap();
         assert!(text.contains("[redacted-anthropic-key]"), "{text}");
         assert!(!text.contains("sk-ant-"));
-    }
-}
-
-/// Recursively sanitize all string values in an event before it leaves.
-#[allow(clippy::items_after_test_module)]
-fn sanitize_value(value: &Value) -> Value {
-    match value {
-        Value::String(s) => Value::String(sanitize_event_text(s)),
-        Value::Array(a) => Value::Array(a.iter().map(sanitize_value).collect()),
-        Value::Object(o) => {
-            Value::Object(o.iter().map(|(k, v)| (k.clone(), sanitize_value(v))).collect())
-        }
-        other => other.clone(),
     }
 }

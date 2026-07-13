@@ -87,7 +87,10 @@ impl StorageAdapter for LocalStorage {
 }
 
 fn sniff_content_type(path: &str) -> Option<String> {
-    let ext = Path::new(path).extension()?.to_string_lossy().to_lowercase();
+    let ext = Path::new(path)
+        .extension()?
+        .to_string_lossy()
+        .to_lowercase();
     let ct = match ext.as_str() {
         "json" => "application/json",
         "txt" | "log" => "text/plain",
