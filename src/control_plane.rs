@@ -143,6 +143,13 @@ impl ControlPlane {
     /// Verify a fencing token still authorizes acting on `resource` before an
     /// external mutation. Uses fiducia-node directly when available; otherwise
     /// trusts the control-plane-issued token (single-node fallback).
+    ///
+    /// Fail-closed: when fiducia-node *is* configured but we cannot get a
+    /// definitive answer (transport failure or a 5xx), we refuse the mutation
+    /// rather than risk a stale worker pushing. A 4xx (e.g. 404 "no such lock")
+    /// is a definitive answer that nothing supersedes this token, so it is
+    /// allowed — that preserves the normal path where the branch is not tracked
+    /// as a direct fiducia-node lock.
     pub async fn verify_fencing_token(&self, resource: &str, token: u64) -> bool {
         let Some(node) = self.node.clone() else {
             return true;
@@ -157,9 +164,41 @@ impl ControlPlane {
                 .and_then(|t| t.as_u64())
                 .map(|current| token >= current)
                 .unwrap_or(true),
-            Err(_) => true,
+            // Node answered definitively (4xx, e.g. lock not found) → nothing
+            // supersedes this token.
+            Err(fiducia_client::Error::Http { status, .. }) if status < 500 => true,
+            // Node unreachable/unhealthy (transport error or 5xx) → cannot confirm
+            // authority; fail closed.
+            Err(_) => false,
         })
         .await
-        .unwrap_or(true)
+        // The verification task panicked → fail closed.
+        .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn verify_allows_when_node_unconfigured() {
+        // Single-node fallback: no direct fiducia-node handle → trust the
+        // control-plane-issued token.
+        let cp = ControlPlane::new(Some("http://cp.invalid"), None, None, "agent-1");
+        assert!(cp.verify_fencing_token("repository/acme/api/branch/x", 7).await);
+    }
+
+    #[tokio::test]
+    async fn verify_fails_closed_when_node_unreachable() {
+        // Node configured but unreachable (connection refused) → transport error
+        // → must fail CLOSED so a stale worker cannot push during an outage.
+        let cp = ControlPlane::new(
+            Some("http://cp.invalid"),
+            None,
+            Some("http://127.0.0.1:9"),
+            "agent-1",
+        );
+        assert!(!cp.verify_fencing_token("repository/acme/api/branch/x", 7).await);
     }
 }
