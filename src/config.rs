@@ -76,7 +76,9 @@ impl Config {
         };
         let log_dir = env_or("LOG_DIR", "/tmp/convos");
         Config {
-            host: env_or("HOST", "0.0.0.0").parse().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()),
+            host: env_or("HOST", "0.0.0.0")
+                .parse()
+                .unwrap_or_else(|_| "0.0.0.0".parse().unwrap()),
             port: env_num("PORT", 8080),
             workspace_repo: env_or("WORKSPACE_REPO", "/home/node/workspace/repo"),
             repo_url: env_opt("DD_REPO_URL").or_else(|| env_opt("FIDUCIA_REPO_URL")),
@@ -86,7 +88,10 @@ impl Config {
             user_id: env_opt("USER_ID"),
             outputs_dir: env_or("OUTPUTS_DIR", "/home/node/workspace/outputs"),
             default_storage_provider: env_or("DEFAULT_STORAGE_PROVIDER", "local"),
-            agent_run_timeout: Duration::from_millis(env_num("AGENT_RUN_TIMEOUT_MS", 2 * 60 * 60_000)),
+            agent_run_timeout: Duration::from_millis(env_num(
+                "AGENT_RUN_TIMEOUT_MS",
+                2 * 60 * 60_000,
+            )),
             base_branch: env_or("BASE_BRANCH", "dev"),
             agent_branch_prefix: env_or("AGENT_BRANCH_PREFIX", "agent/k8s/openai-5.5"),
             default_provider: AgentProvider::from_env_default(),
@@ -95,7 +100,8 @@ impl Config {
             event_ingest_secret: env_opt("EVENT_INGEST_SECRET"),
             nats_url: env_opt("NATS_URL"),
             nats_event_subject: env_or("NATS_EVENT_SUBJECT", "fiducia.executions.progress.v1"),
-            control_plane_url: env_opt("CONTROL_PLANE_URL").or_else(|| env_opt("FIDUCIA_CONTROL_PLANE_URL")),
+            control_plane_url: env_opt("CONTROL_PLANE_URL")
+                .or_else(|| env_opt("FIDUCIA_CONTROL_PLANE_URL")),
             fiducia_node_url: env_opt("FIDUCIA_NODE_URL"),
             control_plane_secret: env_opt("FIDUCIA_CONTROL_PLANE_SECRET")
                 .or_else(|| env_opt("FIDUCIA_INTERNAL_SECRET")),

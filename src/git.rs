@@ -15,7 +15,8 @@ pub const TIMEOUT_GIT_QUICK: Duration = Duration::from_secs(60);
 pub const TIMEOUT_GIT_NETWORK: Duration = Duration::from_secs(5 * 60);
 
 /// Paths the worker owns by contract and never treats as user repo content.
-pub const GENERATED_GIT_EXCLUDE_PATHS: &[&str] = &[".pnpm-store", "node_modules", ".next", ".turbo"];
+pub const GENERATED_GIT_EXCLUDE_PATHS: &[&str] =
+    &[".pnpm-store", "node_modules", ".next", ".turbo"];
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -157,15 +158,22 @@ pub fn repo_urls_match(a: Option<&str>, b: Option<&str>) -> bool {
 // ─── workspace queries ──────────────────────────────────────────────────────
 
 pub async fn current_branch(cwd: &str) -> Option<String> {
-    git(&["symbolic-ref", "--quiet", "--short", "HEAD"], cwd, TIMEOUT_GIT_QUICK)
-        .await
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    git(
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd,
+        TIMEOUT_GIT_QUICK,
+    )
+    .await
+    .ok()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
 }
 
 pub async fn current_commit(cwd: &str) -> Result<String, GitError> {
-    Ok(git(&["rev-parse", "HEAD"], cwd, TIMEOUT_GIT_QUICK).await?.trim().to_string())
+    Ok(git(&["rev-parse", "HEAD"], cwd, TIMEOUT_GIT_QUICK)
+        .await?
+        .trim()
+        .to_string())
 }
 
 /// Porcelain status excluding the generated paths (`gitWorkspaceStatus`).
@@ -189,7 +197,9 @@ pub async fn fetch_remote_branch(cwd: &str, branch: &str, depth: u32) -> Result<
     let refspec = format!("+refs/heads/{branch}:refs/remotes/origin/{branch}");
     let depth_arg = format!("--depth={depth}");
     git(
-        &["fetch", "--quiet", "--prune", &depth_arg, "origin", &refspec],
+        &[
+            "fetch", "--quiet", "--prune", &depth_arg, "origin", &refspec,
+        ],
         cwd,
         TIMEOUT_GIT_NETWORK,
     )
@@ -199,7 +209,12 @@ pub async fn fetch_remote_branch(cwd: &str, branch: &str, depth: u32) -> Result<
 
 pub async fn remote_branch_exists(cwd: &str, branch: &str) -> Result<bool, GitError> {
     assert_safe_branch(branch, "remote branch")?;
-    let out = git(&["ls-remote", "--heads", "origin", branch], cwd, TIMEOUT_GIT_NETWORK).await?;
+    let out = git(
+        &["ls-remote", "--heads", "origin", branch],
+        cwd,
+        TIMEOUT_GIT_NETWORK,
+    )
+    .await?;
     Ok(!out.trim().is_empty())
 }
 
@@ -219,7 +234,13 @@ pub async fn add_workspace_changes(cwd: &str) -> Result<(), GitError> {
 }
 
 pub async fn commit(cwd: &str, message: &str) -> Result<(), GitError> {
-    git(&["commit", "--no-verify", "-m", message], cwd, TIMEOUT_GIT_QUICK).await.map(|_| ())
+    git(
+        &["commit", "--no-verify", "-m", message],
+        cwd,
+        TIMEOUT_GIT_QUICK,
+    )
+    .await
+    .map(|_| ())
 }
 
 pub async fn push_branch(cwd: &str, branch: &str) -> Result<(), GitError> {
@@ -262,7 +283,9 @@ mod tests {
     #[test]
     fn rejects_unsafe_branch_names() {
         assert!(assert_safe_branch("feature/ok-1", "b").is_ok());
-        for bad in ["-x", "/x", "x/", "a..b", "a//b", "x.lock", "a@{0}", "a\\b", "a/../b"] {
+        for bad in [
+            "-x", "/x", "x/", "a..b", "a//b", "x.lock", "a@{0}", "a\\b", "a/../b",
+        ] {
             assert!(assert_safe_branch(bad, "b").is_err(), "should reject {bad}");
         }
     }
@@ -270,7 +293,10 @@ mod tests {
     #[test]
     fn slugify_is_branch_safe() {
         assert_eq!(slugify_branch_fragment("Fix the Parser!"), "fix-the-parser");
-        assert_eq!(slugify_branch_fragment("  multiple   spaces  "), "multiple-spaces");
+        assert_eq!(
+            slugify_branch_fragment("  multiple   spaces  "),
+            "multiple-spaces"
+        );
         assert_eq!(slugify_branch_fragment(""), "thread");
         assert!(assert_safe_branch(&slugify_branch_fragment("weird///name"), "b").is_ok());
     }

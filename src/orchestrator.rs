@@ -69,9 +69,13 @@ pub async fn prepare_session_workspace(
     let cwd = &session.workspace_path;
 
     if state.config.skip_boot_git_sync {
-        git::configure_identity(cwd, &state.config.git_author_name, &state.config.git_author_email)
-            .await
-            .map_err(|e| e.0)?;
+        git::configure_identity(
+            cwd,
+            &state.config.git_author_name,
+            &state.config.git_author_email,
+        )
+        .await
+        .map_err(|e| e.0)?;
         *ready = true;
         return Ok(());
     }
@@ -80,9 +84,14 @@ pub async fn prepare_session_workspace(
         .await
         .map_err(|e| e.0)?;
 
-    let has_remote = git::remote_branch_exists(cwd, &session.branch).await.unwrap_or(false);
+    let has_remote = git::remote_branch_exists(cwd, &session.branch)
+        .await
+        .unwrap_or(false);
     let switch_source = if has_remote {
-        if git::fetch_remote_branch(cwd, &session.branch, 1).await.is_err() {
+        if git::fetch_remote_branch(cwd, &session.branch, 1)
+            .await
+            .is_err()
+        {
             tracing::warn!(branch = %session.branch, "failed to fetch existing thread branch");
         }
         format!("origin/{}", session.branch)
@@ -102,7 +111,13 @@ pub async fn prepare_session_workspace(
         }
         git::sh_capture(
             "git",
-            &["switch", "--discard-changes", "-C", &session.branch, &switch_source],
+            &[
+                "switch",
+                "--discard-changes",
+                "-C",
+                &session.branch,
+                &switch_source,
+            ],
             cwd,
             git::TIMEOUT_GIT_QUICK,
         )
@@ -118,9 +133,13 @@ pub async fn prepare_session_workspace(
         ));
     }
 
-    git::configure_identity(cwd, &state.config.git_author_name, &state.config.git_author_email)
-        .await
-        .map_err(|e| e.0)?;
+    git::configure_identity(
+        cwd,
+        &state.config.git_author_name,
+        &state.config.git_author_email,
+    )
+    .await
+    .map_err(|e| e.0)?;
     *ready = true;
     Ok(())
 }
@@ -154,7 +173,10 @@ pub async fn run_task(state: AppState, task: Arc<TaskState>) {
 }
 
 async fn run_task_inner(state: &AppState, task: &Arc<TaskState>) -> Result<(), String> {
-    state.emit(task, json!({ "kind": "status", "status": "preparing", "message": "Preparing workspace" }));
+    state.emit(
+        task,
+        json!({ "kind": "status", "status": "preparing", "message": "Preparing workspace" }),
+    );
     prepare_session_workspace(state, &task.session).await?;
 
     // Claim the backing work-item from the control plane (fencing token).
@@ -179,13 +201,19 @@ async fn run_task_inner(state: &AppState, task: &Arc<TaskState>) -> Result<(), S
             match apply_deterministic_append(state, task, &edit).await {
                 Ok(true) => { /* handled deterministically; still run agent for narration */ }
                 Ok(false) => {}
-                Err(e) => state.emit(task, json!({ "kind": "stderr", "text": format!("deterministic edit failed: {e}") })),
+                Err(e) => state.emit(
+                    task,
+                    json!({ "kind": "stderr", "text": format!("deterministic edit failed: {e}") }),
+                ),
             }
         }
     }
 
     // Drive the agent runner.
-    state.emit(task, json!({ "kind": "status", "status": "running", "message": "Agent running" }));
+    state.emit(
+        task,
+        json!({ "kind": "status", "status": "running", "message": "Agent running" }),
+    );
     run_agent(state, task).await?;
 
     // Stage + commit + push (external mutation → verify fencing token first).
@@ -195,11 +223,17 @@ async fn run_task_inner(state: &AppState, task: &Arc<TaskState>) -> Result<(), S
     if !status.trim().is_empty() {
         if let Some(ref claim) = claim {
             let resource = format!("repository/{}/branch/{}", repo_display(state), task.branch);
-            if !state.control_plane.verify_fencing_token(&resource, claim.fencing_token).await {
+            if !state
+                .control_plane
+                .verify_fencing_token(&resource, claim.fencing_token)
+                .await
+            {
                 return Err("stale fencing token; refusing to push".into());
             }
         }
-        git::commit(cwd, &format!("agent: {}", first_line(&task.prompt))).await.map_err(|e| e.0)?;
+        git::commit(cwd, &format!("agent: {}", first_line(&task.prompt)))
+            .await
+            .map_err(|e| e.0)?;
         git::push_branch(cwd, &task.branch).await.map_err(|e| e.0)?;
         state.emit(task, json!({ "kind": "status", "status": "pushed", "message": format!("Pushed {}", task.branch) }));
     } else {
@@ -247,27 +281,41 @@ async fn apply_deterministic_append(
     let rel = safe_repo_relative(&task.session.workspace_path, &edit.relative_path)?;
     let target = std::path::Path::new(&task.session.workspace_path).join(&rel);
     if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     let existing = tokio::fs::read_to_string(&target).await.unwrap_or_default();
-    let prefix = if !existing.is_empty() && !existing.ends_with('\n') { "\n" } else { "" };
+    let prefix = if !existing.is_empty() && !existing.ends_with('\n') {
+        "\n"
+    } else {
+        ""
+    };
     let suffix = if edit.text.ends_with('\n') { "" } else { "\n" };
     let mut contents = existing;
     contents.push_str(prefix);
     contents.push_str(&edit.text);
     contents.push_str(suffix);
-    tokio::fs::write(&target, contents).await.map_err(|e| e.to_string())?;
-    state.emit(task, json!({
-        "kind": "status",
-        "status": "deterministic-edit:append-file",
-        "message": format!("Appended {} character(s) to {}", edit.text.len(), rel),
-    }));
+    tokio::fs::write(&target, contents)
+        .await
+        .map_err(|e| e.to_string())?;
+    state.emit(
+        task,
+        json!({
+            "kind": "status",
+            "status": "deterministic-edit:append-file",
+            "message": format!("Appended {} character(s) to {}", edit.text.len(), rel),
+        }),
+    );
     Ok(true)
 }
 
 /// Reject unsafe / out-of-repo / generated paths (`safeRepoRelativePath`).
 fn safe_repo_relative(workspace: &str, raw: &str) -> Result<String, String> {
-    let trimmed = raw.trim().trim_start_matches("./").trim_end_matches([')', ',', '.', ';', ':']);
+    let trimmed = raw
+        .trim()
+        .trim_start_matches("./")
+        .trim_end_matches([')', ',', '.', ';', ':']);
     if trimmed.is_empty() || trimmed.contains('\0') || std::path::Path::new(trimmed).is_absolute() {
         return Err(format!("refusing unsafe append path: {raw}"));
     }
@@ -277,10 +325,8 @@ fn safe_repo_relative(workspace: &str, raw: &str) -> Result<String, String> {
         use std::path::Component;
         match comp {
             Component::ParentDir => return Err(format!("refusing append outside repo: {raw}")),
-            Component::Normal(p) => {
-                if blocked.iter().any(|b| p == std::ffi::OsStr::new(b)) {
-                    return Err(format!("refusing append into generated path: {raw}"));
-                }
+            Component::Normal(p) if blocked.iter().any(|b| p == std::ffi::OsStr::new(b)) => {
+                return Err(format!("refusing append into generated path: {raw}"));
             }
             _ => {}
         }
@@ -314,13 +360,20 @@ async fn publish_artifacts(state: &AppState, task: &Arc<TaskState>) {
             .await
         {
             Ok(artifact) => state.emit(task, json!({ "kind": "artifact", "artifact": artifact })),
-            Err(e) => state.emit(task, json!({ "kind": "stderr", "text": format!("artifact publish failed: {e}") })),
+            Err(e) => state.emit(
+                task,
+                json!({ "kind": "stderr", "text": format!("artifact publish failed: {e}") }),
+            ),
         }
     }
 }
 
 fn repo_display(state: &AppState) -> String {
-    state.config.repo_url.clone().unwrap_or_else(|| "unknown-repo".into())
+    state
+        .config
+        .repo_url
+        .clone()
+        .unwrap_or_else(|| "unknown-repo".into())
 }
 
 fn first_line(s: &str) -> String {

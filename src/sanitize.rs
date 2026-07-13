@@ -7,19 +7,44 @@ use std::sync::OnceLock;
 
 /// Env var names whose *values* are scrubbed out of any emitted text.
 const SECRET_ENV_KEYS: &[&str] = &[
-    "OPENAI_API_KEY", "OPENAI_API_KEYS", "OPENAI_API_KEYS_JSON",
-    "ANTHROPIC_API_KEY", "ANTHROPIC_API_KEYS", "ANTHROPIC_API_KEYS_JSON",
-    "CLAUDE_API_KEY", "CLAUDE_API_KEYS", "CLAUDE_API_KEYS_JSON",
-    "GEMINI_API_KEY", "GEMINI_API_KEYS", "GEMINI_API_KEYS_JSON",
-    "GOOGLE_API_KEY", "GOOGLE_API_KEYS", "GOOGLE_API_KEYS_JSON",
-    "OPENCODE_API_KEY", "OPENCODE_API_KEYS", "OPENCODE_API_KEYS_JSON",
-    "OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEYS", "OPENCODE_ZEN_API_KEYS_JSON",
-    "DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "DEEPSEEK_API_KEYS_JSON",
-    "XAI_API_KEY", "XAI_API_KEYS", "XAI_API_KEYS_JSON",
-    "GROK_API_KEY", "GROK_API_KEYS", "GROK_API_KEYS_JSON",
-    "GH_PAT", "GH_DEPLOY_KEY", "SERVER_AUTH_SECRET", "EVENT_INGEST_SECRET",
+    "OPENAI_API_KEY",
+    "OPENAI_API_KEYS",
+    "OPENAI_API_KEYS_JSON",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_API_KEYS",
+    "ANTHROPIC_API_KEYS_JSON",
+    "CLAUDE_API_KEY",
+    "CLAUDE_API_KEYS",
+    "CLAUDE_API_KEYS_JSON",
+    "GEMINI_API_KEY",
+    "GEMINI_API_KEYS",
+    "GEMINI_API_KEYS_JSON",
+    "GOOGLE_API_KEY",
+    "GOOGLE_API_KEYS",
+    "GOOGLE_API_KEYS_JSON",
+    "OPENCODE_API_KEY",
+    "OPENCODE_API_KEYS",
+    "OPENCODE_API_KEYS_JSON",
+    "OPENCODE_ZEN_API_KEY",
+    "OPENCODE_ZEN_API_KEYS",
+    "OPENCODE_ZEN_API_KEYS_JSON",
+    "DEEPSEEK_API_KEY",
+    "DEEPSEEK_API_KEYS",
+    "DEEPSEEK_API_KEYS_JSON",
+    "XAI_API_KEY",
+    "XAI_API_KEYS",
+    "XAI_API_KEYS_JSON",
+    "GROK_API_KEY",
+    "GROK_API_KEYS",
+    "GROK_API_KEYS_JSON",
+    "GH_PAT",
+    "GH_DEPLOY_KEY",
+    "SERVER_AUTH_SECRET",
+    "EVENT_INGEST_SECRET",
     "SUPABASE_SERVICE_ROLE_KEY",
-    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
 ];
 
 struct Patterns {
@@ -30,14 +55,26 @@ fn patterns() -> &'static Patterns {
     static P: OnceLock<Patterns> = OnceLock::new();
     P.get_or_init(|| {
         let rules = vec![
-            (r"\bsk-ant-[A-Za-z0-9_*.-]{8,}\b", "[redacted-anthropic-key]"),
+            (
+                r"\bsk-ant-[A-Za-z0-9_*.-]{8,}\b",
+                "[redacted-anthropic-key]",
+            ),
             (r"\bsk-oc-[A-Za-z0-9_*.-]{8,}\b", "[redacted-opencode-key]"),
             (r"\bsk-[A-Za-z0-9_*.-]{8,}\b", "[redacted-openai-key]"),
             (r"\bAIza[A-Za-z0-9_*\-]{12,}\b", "[redacted-google-key]"),
             (r"\bxai-[A-Za-z0-9_*.-]{24,}\b", "[redacted-xai-key]"),
-            (r"\b(?:ghp|github_pat)_[A-Za-z0-9_*.-]{8,}\b", "[redacted-github-token]"),
-            (r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", "[redacted-aws-access-key]"),
-            (r"\bIQoJ[A-Za-z0-9+/=_\-]{180,}\b", "[redacted-aws-session-token]"),
+            (
+                r"\b(?:ghp|github_pat)_[A-Za-z0-9_*.-]{8,}\b",
+                "[redacted-github-token]",
+            ),
+            (
+                r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b",
+                "[redacted-aws-access-key]",
+            ),
+            (
+                r"\bIQoJ[A-Za-z0-9+/=_\-]{180,}\b",
+                "[redacted-aws-session-token]",
+            ),
         ]
         .into_iter()
         .filter_map(|(pat, repl)| Regex::new(pat).ok().map(|re| (re, repl)))

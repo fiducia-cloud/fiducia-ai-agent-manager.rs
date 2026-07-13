@@ -15,7 +15,9 @@ pub async fn merge_upstream(state: &AppState, branch: &str) -> Result<Value, Str
     let base = &state.config.base_branch;
     git::assert_safe_branch(branch, "session branch").map_err(|e| e.0)?;
     let before = git::current_commit(cwd).await.map_err(|e| e.0)?;
-    git::fetch_remote_branch(cwd, base, 1).await.map_err(|e| e.0)?;
+    git::fetch_remote_branch(cwd, base, 1)
+        .await
+        .map_err(|e| e.0)?;
     git::sh_capture(
         "git",
         &["merge", "--no-edit", &format!("origin/{base}")],
@@ -36,7 +38,11 @@ pub async fn merge_upstream(state: &AppState, branch: &str) -> Result<Value, Str
 }
 
 /// Stage, commit, and push the current workspace (`/thread/make-commit`).
-pub async fn make_commit(state: &AppState, branch: &str, message: Option<&str>) -> Result<Value, String> {
+pub async fn make_commit(
+    state: &AppState,
+    branch: &str,
+    message: Option<&str>,
+) -> Result<Value, String> {
     let cwd = &state.config.workspace_repo;
     git::assert_safe_branch(branch, "session branch").map_err(|e| e.0)?;
     let before = git::current_commit(cwd).await.map_err(|e| e.0)?;
@@ -44,7 +50,9 @@ pub async fn make_commit(state: &AppState, branch: &str, message: Option<&str>) 
     let status = git::workspace_status(cwd).await.map_err(|e| e.0)?;
     let committed = !status.trim().is_empty();
     if committed {
-        git::commit(cwd, message.unwrap_or("agent: manual commit")).await.map_err(|e| e.0)?;
+        git::commit(cwd, message.unwrap_or("agent: manual commit"))
+            .await
+            .map_err(|e| e.0)?;
     }
     git::push_branch(cwd, branch).await.map_err(|e| e.0)?;
     let after = git::current_commit(cwd).await.map_err(|e| e.0)?;
@@ -77,12 +85,26 @@ pub async fn open_pr(state: &AppState, branch: &str, title: Option<&str>) -> Res
     {
         let url = existing.trim();
         if !url.is_empty() {
-            return Ok(json!({ "ok": true, "branch": branch, "prUrl": url, "title": title, "draft": true, "reused": true }));
+            return Ok(
+                json!({ "ok": true, "branch": branch, "prUrl": url, "title": title, "draft": true, "reused": true }),
+            );
         }
     }
     let out = git::sh_capture(
         "gh",
-        &["pr", "create", "--draft", "--base", base, "--head", branch, "--title", &title, "--body", "Draft PR opened by fiducia agent."],
+        &[
+            "pr",
+            "create",
+            "--draft",
+            "--base",
+            base,
+            "--head",
+            branch,
+            "--title",
+            &title,
+            "--body",
+            "Draft PR opened by fiducia agent.",
+        ],
         cwd,
         git::TIMEOUT_GIT_NETWORK,
     )

@@ -47,12 +47,19 @@ const MAX_ACTIVE_TASKS: usize = 256;
 
 /// `X-Server-Auth` gate (`serverAuthSecret`). Returns 401 when unconfigured or
 /// mismatched — the same fail-closed behaviour as the Node service.
+// Axum handlers return their fully formed rejection response so callers preserve
+// status, headers, and body without rebuilding the error at every route.
+#[allow(clippy::result_large_err)]
 fn require_server_auth(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
     let secret = state.config.server_auth_secret.as_deref();
     let presented = headers.get("x-server-auth").and_then(|v| v.to_str().ok());
     match (secret, presented) {
         (Some(s), Some(p)) if crate::util::constant_time_eq(p.as_bytes(), s.as_bytes()) => Ok(()),
-        _ => Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))).into_response()),
+        _ => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "unauthorized" })),
+        )
+            .into_response()),
     }
 }
 
@@ -141,10 +148,20 @@ async fn dispatch_task(
         return r;
     }
     if body.prompt.is_empty() || body.prompt.len() > 64_000 {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "prompt is required (1..64000 chars)" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "prompt is required (1..64000 chars)" })),
+        )
+            .into_response();
     }
-    let task_id = body.task_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let thread_id = body.thread_id.clone().or_else(|| st.config.thread_id.clone());
+    let task_id = body
+        .task_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let thread_id = body
+        .thread_id
+        .clone()
+        .or_else(|| st.config.thread_id.clone());
     let user_id = body.user_id.clone().or_else(|| st.config.user_id.clone());
 
     // Binding guards (thread / repo / base branch / user).
@@ -154,14 +171,28 @@ async fn dispatch_task(
         }
     }
     if st.config.worker_bind_mode == crate::config::BindMode::Repo && thread_id.is_none() {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "threadId is required for repo-scoped warm workers" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "threadId is required for repo-scoped warm workers" })),
+        )
+            .into_response();
     }
-    if let Some(req_repo) = body.repo.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(req_repo) = body
+        .repo
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if !crate::git::repo_urls_match(Some(req_repo), st.config.repo_url.as_deref()) {
             return (StatusCode::CONFLICT, Json(json!({ "error": "container is bound to a different repo", "boundRepo": st.config.repo_url }))).into_response();
         }
     }
-    if let Some(req_base) = body.base_branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(req_base) = body
+        .base_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if req_base != st.config.base_branch {
             return (StatusCode::CONFLICT, Json(json!({ "error": "container is bound to a different baseBranch", "boundBaseBranch": st.config.base_branch }))).into_response();
         }
@@ -177,7 +208,12 @@ async fn dispatch_task(
     }
 
     // Backpressure: reject new work once too many live tasks are in flight.
-    let live = st.tasks.lock().values().filter(|t| !t.is_finished()).count();
+    let live = st
+        .tasks
+        .lock()
+        .values()
+        .filter(|t| !t.is_finished())
+        .count();
     if live >= MAX_ACTIVE_TASKS {
         return (
             StatusCode::TOO_MANY_REQUESTS,
@@ -219,7 +255,10 @@ async fn dispatch_task(
     st.tasks.lock().insert(task_id.clone(), task.clone());
     session.queued_task_ids.lock().push(task_id.clone());
 
-    st.emit(&task, json!({ "kind": "status", "status": "queued", "sessionId": session.session_id }));
+    st.emit(
+        &task,
+        json!({ "kind": "status", "status": "queued", "sessionId": session.session_id }),
+    );
 
     // Run the task in the background; the session queue serializes execution.
     let st_bg = st.clone();
@@ -285,12 +324,20 @@ async fn stream(
     };
 
     Sse::new(stream)
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(25)).text("ping"))
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(25))
+                .text("ping"),
+        )
         .into_response()
 }
 
 fn sse_event(stored: &crate::event_bus::StoredEvent) -> Event {
-    let kind = stored.event.get("kind").and_then(|k| k.as_str()).unwrap_or("message");
+    let kind = stored
+        .event
+        .get("kind")
+        .and_then(|k| k.as_str())
+        .unwrap_or("message");
     Event::default()
         .id(stored.seq.to_string())
         .event(kind)
@@ -299,16 +346,24 @@ fn sse_event(stored: &crate::event_bus::StoredEvent) -> Event {
 
 // ─── cancel ─────────────────────────────────────────────────────────────────
 
-async fn cancel_task(State(st): State<AppState>, Path(task_id): Path<String>, headers: HeaderMap) -> Response {
+async fn cancel_task(
+    State(st): State<AppState>,
+    Path(task_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
     }
     let Some(task) = st.tasks.lock().get(&task_id).cloned() else {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response();
     };
-    task.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    task.cancelled
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     task.cancel.cancel();
-    st.emit(&task, json!({ "kind": "status", "status": "cancelling", "message": "Cancellation requested" }));
+    st.emit(
+        &task,
+        json!({ "kind": "status", "status": "cancelling", "message": "Cancellation requested" }),
+    );
     Json(json!({ "ok": true, "taskId": task_id, "cancelled": true })).into_response()
 }
 
@@ -326,8 +381,14 @@ struct ThreadControlBody {
     message: Option<String>,
 }
 
+#[allow(clippy::result_large_err)]
 fn resolved_branch(st: &AppState, body: &ThreadControlBody) -> Result<String, Response> {
-    if let Some(b) = body.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(b) = body
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         return Ok(b.to_string());
     }
     // Fall back to the pinned thread's session branch.
@@ -335,10 +396,18 @@ fn resolved_branch(st: &AppState, body: &ThreadControlBody) -> Result<String, Re
     if let Some(session) = sessions.values().next() {
         return Ok(session.branch.clone());
     }
-    Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "no active thread branch; pass branch" }))).into_response())
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": "no active thread branch; pass branch" })),
+    )
+        .into_response())
 }
 
-async fn merge_upstream(State(st): State<AppState>, headers: HeaderMap, Json(body): Json<ThreadControlBody>) -> Response {
+async fn merge_upstream(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ThreadControlBody>,
+) -> Response {
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
     }
@@ -352,7 +421,11 @@ async fn merge_upstream(State(st): State<AppState>, headers: HeaderMap, Json(bod
     }
 }
 
-async fn make_commit(State(st): State<AppState>, headers: HeaderMap, Json(body): Json<ThreadControlBody>) -> Response {
+async fn make_commit(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ThreadControlBody>,
+) -> Response {
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
     }
@@ -366,7 +439,11 @@ async fn make_commit(State(st): State<AppState>, headers: HeaderMap, Json(body):
     }
 }
 
-async fn open_pr(State(st): State<AppState>, headers: HeaderMap, Json(body): Json<ThreadControlBody>) -> Response {
+async fn open_pr(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ThreadControlBody>,
+) -> Response {
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
     }
