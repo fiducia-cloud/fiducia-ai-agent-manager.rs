@@ -1,0 +1,131 @@
+# flags-2-env flag schema for the fiducia-ai-agent-manager service: maps
+# command-line flags to the environment variables the worker reads at boot (see
+# src/config.rs, src/agents.rs, src/main.rs). Consumed by
+# scripts/with-flags2env.sh and audited in CI (cli-flags.yml). Flags whose help
+# ends with "(secret)" carry credentials and must not be logged.
+[help]
+url = "https://github.com/fiducia-cloud/fiducia-ai-agent-manager.rs"
+columns = ["options", "env", "type", "description"]
+
+[parse]
+allow_unknown = false
+
+[flags.host]
+env = "HOST"
+aliases = ["host"]
+type = "string"
+help = "Bind address for the HTTP server (default 0.0.0.0)."
+
+[flags.port]
+env = "PORT"
+aliases = ["port"]
+type = "integer"
+help = "Port for the HTTP/SSE server (default 8080)."
+
+[flags.workspace-repo]
+env = "WORKSPACE_REPO"
+aliases = ["workspace-repo"]
+type = "string"
+help = "Path to the warm, configured git checkout every task shares."
+
+[flags.repo-url]
+env = "FIDUCIA_REPO_URL"
+aliases = ["repo-url"]
+type = "string"
+help = "Remote git URL to clone/sync the workspace from (also DD_REPO_URL)."
+
+[flags.base-branch]
+env = "BASE_BRANCH"
+aliases = ["base-branch"]
+type = "string"
+help = "Base branch tasks branch from and merge upstream from (default dev)."
+
+[flags.agent-branch-prefix]
+env = "AGENT_BRANCH_PREFIX"
+aliases = ["agent-branch-prefix"]
+type = "string"
+help = "Prefix for per-thread agent branches."
+
+[flags.agent-provider]
+env = "AGENT_PROVIDER"
+aliases = ["agent-provider"]
+type = "string"
+help = "Default agent provider (claude-cli, openai-codex-cli, gemini-sdk, ...)."
+
+[flags.worker-bind-mode]
+env = "WORKER_BIND_MODE"
+aliases = ["worker-bind-mode"]
+type = "string"
+help = "Worker binding: 'thread' (pinned to one thread) or 'repo'."
+
+[flags.thread-id]
+env = "REMOTE_DEV_THREAD_ID"
+aliases = ["thread-id"]
+type = "string"
+help = "Thread this worker is pinned to (also THREAD_ID)."
+
+[flags.nats-url]
+env = "NATS_URL"
+aliases = ["nats-url"]
+type = "string"
+help = "NATS server URL for live progress + durable execution events."
+
+[flags.nats-event-subject]
+env = "NATS_EVENT_SUBJECT"
+aliases = ["nats-event-subject"]
+type = "string"
+help = "Subject execution-progress events publish to."
+
+[flags.control-plane-url]
+env = "CONTROL_PLANE_URL"
+aliases = ["control-plane-url"]
+type = "string"
+help = "fiducia-ai-agent-control-plane base URL (also FIDUCIA_CONTROL_PLANE_URL)."
+
+[flags.fiducia-node-url]
+env = "FIDUCIA_NODE_URL"
+aliases = ["fiducia-node-url"]
+type = "string"
+help = "Optional fiducia-node URL for direct fencing-token verification."
+
+[flags.event-ingest-url]
+env = "EVENT_INGEST_URL"
+aliases = ["event-ingest-url"]
+type = "string"
+help = "Optional Vercel-style event ingest endpoint."
+
+[flags.outputs-dir]
+env = "OUTPUTS_DIR"
+aliases = ["outputs-dir"]
+type = "string"
+help = "Directory where task artifacts are written."
+
+[flags.log-dir]
+env = "LOG_DIR"
+aliases = ["log-dir"]
+type = "string"
+help = "Directory for per-conversation logs (default /tmp/convos)."
+
+[flags.log-format]
+env = "LOG_FORMAT"
+aliases = ["log-format"]
+type = "string"
+help = "Set to 'json' for structured logs; anything else is human format."
+
+[flags.server-auth-secret]
+env = "SERVER_AUTH_SECRET"
+aliases = ["server-auth-secret"]
+type = "string"
+help = "Shared secret enforced on mutating routes via X-Server-Auth (secret)."
+
+[flags.control-plane-secret]
+env = "FIDUCIA_CONTROL_PLANE_SECRET"
+aliases = ["control-plane-secret"]
+type = "string"
+help = "Secret presented to the control plane as x-internal-auth (secret). Also FIDUCIA_INTERNAL_SECRET."
+
+[flags.event-ingest-secret]
+env = "EVENT_INGEST_SECRET"
+aliases = ["event-ingest-secret"]
+type = "string"
+help = "Bearer secret for the event ingest endpoint (secret)."

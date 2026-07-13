@@ -1,0 +1,57 @@
+[package]
+name = "fiducia-ai-agent-manager"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "AI agent worker for fiducia.cloud — runs coding agents (Claude/OpenAI/…) inside a warm, configured git workspace and streams sequenced events over SSE/WebSocket/NATS. Rust port of the Node.js dev-server, governed by fiducia-ai-agent-control-plane."
+authors = ["fiducia.cloud"]
+license = "MIT"
+repository = "https://github.com/fiducia-cloud/fiducia-ai-agent-manager.rs"
+readme = "README.md"
+keywords = ["agents", "coding", "git", "sse", "nats"]
+categories = ["web-programming", "development-tools"]
+
+[[bin]]
+name = "fiducia-ai-agent-manager"
+path = "src/main.rs"
+
+[lib]
+name = "fiducia_ai_agent_manager"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "sync", "time", "signal", "fs"] }
+axum = { version = "0.8", features = ["ws"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+async-trait = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# Talking to the control plane, event ingest, and heartbeat endpoints.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+parking_lot = "0.12"
+regex = "1"
+# NATS message bus (live progress + durable execution events).
+async-nats = "0.38"
+bytes = "1"
+
+# Shared, generated payload/error contract.
+fiducia-interfaces = { path = "../fiducia-interfaces/generated/rust" }
+# Rust fiducia client (fiducia-node coordination — fencing-token verification).
+fiducia-client = { path = "../fiducia-clients/clients/rust" }
+
+[features]
+default = []
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
