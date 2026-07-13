@@ -176,3 +176,29 @@ impl ControlPlane {
         .unwrap_or(false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn verify_allows_when_node_unconfigured() {
+        // Single-node fallback: no direct fiducia-node handle → trust the
+        // control-plane-issued token.
+        let cp = ControlPlane::new(Some("http://cp.invalid"), None, None, "agent-1");
+        assert!(cp.verify_fencing_token("repository/acme/api/branch/x", 7).await);
+    }
+
+    #[tokio::test]
+    async fn verify_fails_closed_when_node_unreachable() {
+        // Node configured but unreachable (connection refused) → transport error
+        // → must fail CLOSED so a stale worker cannot push during an outage.
+        let cp = ControlPlane::new(
+            Some("http://cp.invalid"),
+            None,
+            Some("http://127.0.0.1:9"),
+            "agent-1",
+        );
+        assert!(!cp.verify_fencing_token("repository/acme/api/branch/x", 7).await);
+    }
+}
