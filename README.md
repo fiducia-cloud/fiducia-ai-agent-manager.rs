@@ -117,6 +117,16 @@ node internal secrets are listed under `.cli-flags.toml`'s `[env].ignore` and
 must be injected as environment variables by a secret manager; they are never
 accepted on argv.
 
+### Reproducible cross-repository inputs
+
+CI and the Docker build use `fiducia-interfaces` commit
+`bbd8b52ce729ec34b0a9bff4dda6d0a448181797` and `fiducia-clients` commit
+`051b332843fb005006be0d564e98ba46b825785c`. The Dockerfile fetches each full
+object id, checks it out detached, verifies `HEAD`, and then builds with
+`cargo --locked`; CI checks out the same refs and pins every action and tool
+version. Update the Docker arguments and workflow refs together when adopting a
+reviewed dependency change.
+
 ## Security
 
 - **Audit:** `cargo audit` runs without advisory exceptions. NATS uses the
