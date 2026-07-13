@@ -45,7 +45,14 @@ impl ControlPlane {
     ) -> Self {
         ControlPlane {
             base: base_url.map(|b| b.trim_end_matches('/').to_string()),
-            http: reqwest::Client::new(),
+            // Bound every control-plane call: `claim_work` is awaited inline in
+            // the task path (while the session queue is held), so a hung control
+            // plane must not stall the worker indefinitely.
+            http: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             internal_secret: internal_secret.map(str::to_string),
             agent_id: agent_id.into(),
             node: node_url.map(|u| Arc::new(FiduciaClient::new(u))),

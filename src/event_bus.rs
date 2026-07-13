@@ -93,7 +93,14 @@ impl EventBus {
         Arc::new(EventBus {
             tasks: Mutex::new(HashMap::new()),
             circuit: Mutex::new(CircuitState::default()),
-            http: reqwest::Client::new(),
+            // Bound each ingest POST so a hung endpoint cannot pin a spawned task
+            // (and a connection) forever; the circuit breaker handles sustained
+            // failures on top of this.
+            http: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             ingest,
             log_dir,
             nats,
