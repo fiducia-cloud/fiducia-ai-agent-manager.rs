@@ -121,7 +121,7 @@ accepted on argv.
 
 CI and the Docker build use `fiducia-interfaces` commit
 `5f2c5279ee19941024455b2843256872485bac82` and `fiducia-clients` commit
-`ff575d7aa6a0f3e75f312e0963f0fc61bbf9354c`. The Dockerfile fetches each full
+`7ca1d5d58b8b06dc180232c93e19098202400538`. The Dockerfile fetches each full
 object id, checks it out detached, verifies `HEAD`, and then builds with
 `cargo --locked`; CI checks out the same refs and pins every action and tool
 version. Update the Docker arguments and workflow refs together when adopting a
