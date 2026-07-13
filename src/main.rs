@@ -29,19 +29,28 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let nats = Arc::new(Nats::new(&config));
-    let control_plane = ControlPlane::new(
+    let mut control_plane = ControlPlane::new(
         config.control_plane_url.as_deref(),
         config.control_plane_secret.as_deref(),
         config.fiducia_node_url.as_deref(),
+        config.fiducia_node_internal_secret.as_deref(),
+        &config.fiducia_node_org_id,
         instance_id.clone(),
-    );
-    // Register this worker as an agent (best-effort) with the control plane.
+    )
+    .map_err(anyhow::Error::msg)?;
+    // A configured control plane is authoritative. Startup fails closed unless
+    // it returns the agent id later used for work ownership and transitions.
     control_plane
         .register(
             config.default_provider.as_str(),
-            &["code".into(), "git".into(), config.default_provider.as_str().into()],
+            &[
+                "code".into(),
+                "git".into(),
+                config.default_provider.as_str().into(),
+            ],
         )
-        .await;
+        .await
+        .map_err(anyhow::Error::msg)?;
 
     let bus = EventBus::new(
         config.event_ingest_url.clone(),
@@ -93,7 +102,9 @@ async fn main() -> anyhow::Result<()> {
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,fiducia_ai_agent_manager=debug"));
-    let json = std::env::var("LOG_FORMAT").map(|v| v == "json").unwrap_or(false);
+    let json = std::env::var("LOG_FORMAT")
+        .map(|v| v == "json")
+        .unwrap_or(false);
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
     if json {
         builder.json().init();

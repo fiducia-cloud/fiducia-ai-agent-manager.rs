@@ -10,6 +10,11 @@ columns = ["options", "env", "type", "description"]
 [parse]
 allow_unknown = false
 
+[env]
+# Control-plane and direct-node credentials are environment/secret-manager only:
+# accepting them on argv would expose them through process listings.
+ignore = ["FIDUCIA_CONTROL_PLANE_SECRET", "FIDUCIA_INTERNAL_SECRET", "FIDUCIA_NODE_INTERNAL_SECRET"]
+
 [flags.host]
 env = "HOST"
 aliases = ["host"]
@@ -86,7 +91,13 @@ help = "fiducia-ai-agent-control-plane base URL (also FIDUCIA_CONTROL_PLANE_URL)
 env = "FIDUCIA_NODE_URL"
 aliases = ["fiducia-node-url"]
 type = "string"
-help = "Optional fiducia-node URL for direct fencing-token verification."
+help = "fiducia-node URL for direct work-election renewal (required in governed mode)."
+
+[flags.fiducia-node-org-id]
+env = "FIDUCIA_NODE_ORG_ID"
+aliases = ["fiducia-node-org-id"]
+type = "string"
+help = "Tenant scope shared with the control plane (default fiducia-ai-control-plane)."
 
 [flags.event-ingest-url]
 env = "EVENT_INGEST_URL"
@@ -117,12 +128,6 @@ env = "SERVER_AUTH_SECRET"
 aliases = ["server-auth-secret"]
 type = "string"
 help = "Shared secret enforced on mutating routes via X-Server-Auth (secret)."
-
-[flags.control-plane-secret]
-env = "FIDUCIA_CONTROL_PLANE_SECRET"
-aliases = ["control-plane-secret"]
-type = "string"
-help = "Secret presented to the control plane as x-internal-auth (secret). Also FIDUCIA_INTERNAL_SECRET."
 
 [flags.event-ingest-secret]
 env = "EVENT_INGEST_SECRET"

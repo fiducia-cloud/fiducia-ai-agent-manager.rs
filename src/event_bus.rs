@@ -100,7 +100,7 @@ impl EventBus {
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+                .expect("static event-ingest HTTP client configuration must be valid"),
             ingest,
             log_dir,
             nats,
@@ -382,6 +382,7 @@ mod tests {
 }
 
 /// Recursively sanitize all string values in an event before it leaves.
+#[allow(clippy::items_after_test_module)]
 fn sanitize_value(value: &Value) -> Value {
     match value {
         Value::String(s) => Value::String(sanitize_event_text(s)),

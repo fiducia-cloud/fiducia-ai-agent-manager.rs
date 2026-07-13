@@ -12,10 +12,12 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::agents::{build_agent_env, AgentRunOpts, AgentRunner, AgentRunnerEvent, CliRunner};
+use crate::control_plane::{WorkClaim, CLAIM_LEASE_TTL_MS, CLAIM_RENEW_INTERVAL};
 use crate::git;
 use crate::prompt;
 use crate::state::{AppState, TaskState, ThreadSession};
 use crate::storage::{PublishOptions, StorageAdapter};
+use tokio_util::sync::CancellationToken;
 
 /// Get or create the session for a task's thread (`getOrCreateSession`).
 pub fn get_or_create_session(
@@ -62,37 +64,95 @@ pub async fn prepare_session_workspace(
     state: &AppState,
     session: &Arc<ThreadSession>,
 ) -> Result<(), String> {
+    prepare_session_workspace_inner(state, session, None).await
+}
+
+async fn prepare_session_workspace_with_cancel(
+    state: &AppState,
+    session: &Arc<ThreadSession>,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    prepare_session_workspace_inner(state, session, Some(cancel)).await
+}
+
+async fn prepare_session_workspace_inner(
+    state: &AppState,
+    session: &Arc<ThreadSession>,
+    cancel: Option<&CancellationToken>,
+) -> Result<(), String> {
     let mut ready = session.ready.lock().await;
     if *ready {
         return Ok(());
     }
     let cwd = &session.workspace_path;
+    ensure_cancel_active(cancel)?;
 
     if state.config.skip_boot_git_sync {
-        git::configure_identity(cwd, &state.config.git_author_name, &state.config.git_author_email)
-            .await
-            .map_err(|e| e.0)?;
+        match cancel {
+            Some(cancel) => {
+                git::configure_identity_with_cancel(
+                    cwd,
+                    &state.config.git_author_name,
+                    &state.config.git_author_email,
+                    cancel,
+                )
+                .await
+            }
+            None => {
+                git::configure_identity(
+                    cwd,
+                    &state.config.git_author_name,
+                    &state.config.git_author_email,
+                )
+                .await
+            }
+        }
+        .map_err(|e| e.0)?;
+        ensure_cancel_active(cancel)?;
         *ready = true;
         return Ok(());
     }
 
-    git::fetch_remote_branch(cwd, &state.config.base_branch, 1)
-        .await
-        .map_err(|e| e.0)?;
+    match cancel {
+        Some(cancel) => {
+            git::fetch_remote_branch_with_cancel(cwd, &state.config.base_branch, 1, cancel).await
+        }
+        None => git::fetch_remote_branch(cwd, &state.config.base_branch, 1).await,
+    }
+    .map_err(|e| e.0)?;
+    ensure_cancel_active(cancel)?;
 
-    let has_remote = git::remote_branch_exists(cwd, &session.branch).await.unwrap_or(false);
+    let has_remote = match cancel {
+        Some(cancel) => git::remote_branch_exists_with_cancel(cwd, &session.branch, cancel).await,
+        None => git::remote_branch_exists(cwd, &session.branch).await,
+    }
+    .unwrap_or(false);
+    ensure_cancel_active(cancel)?;
     let switch_source = if has_remote {
-        if git::fetch_remote_branch(cwd, &session.branch, 1).await.is_err() {
+        let fetched = match cancel {
+            Some(cancel) => {
+                git::fetch_remote_branch_with_cancel(cwd, &session.branch, 1, cancel).await
+            }
+            None => git::fetch_remote_branch(cwd, &session.branch, 1).await,
+        };
+        if fetched.is_err() {
             tracing::warn!(branch = %session.branch, "failed to fetch existing thread branch");
         }
+        ensure_cancel_active(cancel)?;
         format!("origin/{}", session.branch)
     } else {
         format!("origin/{}", state.config.base_branch)
     };
 
+    ensure_cancel_active(cancel)?;
     let current = git::current_branch(cwd).await;
+    ensure_cancel_active(cancel)?;
     if current.as_deref() != Some(session.branch.as_str()) {
-        let status = git::workspace_status(cwd).await.map_err(|e| e.0)?;
+        let status = match cancel {
+            Some(cancel) => git::workspace_status_with_cancel(cwd, cancel).await,
+            None => git::workspace_status(cwd).await,
+        }
+        .map_err(|e| e.0)?;
         if !status.trim().is_empty() {
             return Err(format!(
                 "workspace has uncommitted changes while on {}; refusing to switch to {}",
@@ -100,11 +160,18 @@ pub async fn prepare_session_workspace(
                 session.branch
             ));
         }
-        git::sh_capture(
+        git::sh_capture_with_cancel(
             "git",
-            &["switch", "--discard-changes", "-C", &session.branch, &switch_source],
+            &[
+                "switch",
+                "--discard-changes",
+                "-C",
+                &session.branch,
+                &switch_source,
+            ],
             cwd,
             git::TIMEOUT_GIT_QUICK,
+            cancel,
         )
         .await
         .map_err(|e| e.0)?;
@@ -118,11 +185,38 @@ pub async fn prepare_session_workspace(
         ));
     }
 
-    git::configure_identity(cwd, &state.config.git_author_name, &state.config.git_author_email)
-        .await
-        .map_err(|e| e.0)?;
+    ensure_cancel_active(cancel)?;
+    match cancel {
+        Some(cancel) => {
+            git::configure_identity_with_cancel(
+                cwd,
+                &state.config.git_author_name,
+                &state.config.git_author_email,
+                cancel,
+            )
+            .await
+        }
+        None => {
+            git::configure_identity(
+                cwd,
+                &state.config.git_author_name,
+                &state.config.git_author_email,
+            )
+            .await
+        }
+    }
+    .map_err(|e| e.0)?;
+    ensure_cancel_active(cancel)?;
     *ready = true;
     Ok(())
+}
+
+fn ensure_cancel_active(cancel: Option<&CancellationToken>) -> Result<(), String> {
+    if cancel.is_some_and(CancellationToken::is_cancelled) {
+        Err("task cancelled by request".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 /// Run one task end-to-end. Emits sequenced events throughout; never panics the
@@ -137,7 +231,11 @@ pub async fn run_task(state: AppState, task: Arc<TaskState>) {
         Ok(()) => "completed",
         Err(ref err) => {
             state.emit(&task, json!({ "kind": "error", "message": err }));
-            "failed"
+            if task.cancelled.load(Ordering::SeqCst) {
+                "cancelled"
+            } else {
+                "failed"
+            }
         }
     };
     if !task.is_finished() {
@@ -154,65 +252,198 @@ pub async fn run_task(state: AppState, task: Arc<TaskState>) {
 }
 
 async fn run_task_inner(state: &AppState, task: &Arc<TaskState>) -> Result<(), String> {
-    state.emit(task, json!({ "kind": "status", "status": "preparing", "message": "Preparing workspace" }));
-    prepare_session_workspace(state, &task.session).await?;
+    ensure_task_active(task)?;
+    state.emit(
+        task,
+        json!({ "kind": "status", "status": "preparing", "message": "Preparing workspace" }),
+    );
+    prepare_session_workspace_with_cancel(state, &task.session, &task.cancel).await?;
+    ensure_task_active(task)?;
 
     // Claim the backing work-item from the control plane (fencing token).
-    let claim = match &task.thread_id {
-        Some(tid) if state.control_plane.enabled() => {
-            let c = state.control_plane.claim_work(tid, 30_000).await;
-            if let Some(ref claim) = c {
-                state.control_plane.transition(claim, "running").await;
-                state.emit(task, json!({
-                    "kind": "status", "status": "claimed",
-                    "message": format!("Claimed work-item {} (fencing token {})", claim.work_item_id, claim.fencing_token),
-                }));
-            }
-            c
+    if state.control_plane.enabled() {
+        let work_item_id = task.thread_id.as_deref().ok_or_else(|| {
+            "control-plane governance requires a backing work-item id".to_string()
+        })?;
+        let claim = state
+            .control_plane
+            .claim_work(work_item_id, CLAIM_LEASE_TTL_MS)
+            .await?;
+        if let Err(cancelled) = ensure_task_active(task) {
+            return match state.control_plane.transition(&claim, "cancelled").await {
+                Ok(()) => Err(cancelled),
+                Err(transition) => Err(format!(
+                    "{cancelled}; additionally could not persist cancelled state: {transition}"
+                )),
+            };
         }
-        _ => None,
-    };
+        state.control_plane.transition(&claim, "running").await?;
+        state.emit(task, json!({
+            "kind": "status", "status": "claimed",
+            "message": format!("Claimed work-item {} (fencing token {})", claim.work_item_id, claim.fencing_token),
+        }));
+        run_claimed_lifecycle(state, task, &claim).await
+    } else {
+        run_task_lifecycle(state, task, None).await
+    }
+}
 
+/// Run every post-claim stage, including local mutations, external push, and
+/// artifact publication. In governed mode the caller keeps the lease alive for
+/// this entire future and for the terminal control-plane transition.
+async fn run_task_lifecycle(
+    state: &AppState,
+    task: &Arc<TaskState>,
+    claim: Option<&WorkClaim>,
+) -> Result<(), String> {
+    ensure_task_active(task)?;
     // Optimistic deterministic edit (append-file), when the provider can edit.
     if task.provider.can_edit_workspace() {
         if let Some(edit) = prompt::parse_deterministic_append(&task.prompt) {
             match apply_deterministic_append(state, task, &edit).await {
                 Ok(true) => { /* handled deterministically; still run agent for narration */ }
                 Ok(false) => {}
-                Err(e) => state.emit(task, json!({ "kind": "stderr", "text": format!("deterministic edit failed: {e}") })),
+                Err(e) => state.emit(
+                    task,
+                    json!({ "kind": "stderr", "text": format!("deterministic edit failed: {e}") }),
+                ),
             }
         }
     }
+    ensure_task_active(task)?;
 
     // Drive the agent runner.
-    state.emit(task, json!({ "kind": "status", "status": "running", "message": "Agent running" }));
+    state.emit(
+        task,
+        json!({ "kind": "status", "status": "running", "message": "Agent running" }),
+    );
     run_agent(state, task).await?;
+    ensure_task_active(task)?;
 
     // Stage + commit + push (external mutation → verify fencing token first).
     let cwd = &task.session.workspace_path;
-    git::add_workspace_changes(cwd).await.map_err(|e| e.0)?;
-    let status = git::workspace_status(cwd).await.map_err(|e| e.0)?;
+    ensure_task_active(task)?;
+    git::add_workspace_changes_with_cancel(cwd, &task.cancel)
+        .await
+        .map_err(|e| e.0)?;
+    ensure_task_active(task)?;
+    let status = git::workspace_status_with_cancel(cwd, &task.cancel)
+        .await
+        .map_err(|e| e.0)?;
     if !status.trim().is_empty() {
-        if let Some(ref claim) = claim {
-            let resource = format!("repository/{}/branch/{}", repo_display(state), task.branch);
-            if !state.control_plane.verify_fencing_token(&resource, claim.fencing_token).await {
-                return Err("stale fencing token; refusing to push".into());
-            }
+        ensure_task_active(task)?;
+        git::commit_with_cancel(
+            cwd,
+            &format!("agent: {}", first_line(&task.prompt)),
+            &task.cancel,
+        )
+        .await
+        .map_err(|e| e.0)?;
+        ensure_task_active(task)?;
+        // Renew immediately before the external mutation. The periodic renewal
+        // protects the whole lifecycle; this final exact check closes the gap
+        // between its last tick and spawning `git push`.
+        if let Some(claim) = claim {
+            state.control_plane.renew_claim(claim).await?;
         }
-        git::commit(cwd, &format!("agent: {}", first_line(&task.prompt))).await.map_err(|e| e.0)?;
-        git::push_branch(cwd, &task.branch).await.map_err(|e| e.0)?;
+        ensure_task_active(task)?;
+        git::push_branch_with_cancel(cwd, &task.branch, &task.cancel)
+            .await
+            .map_err(|e| e.0)?;
         state.emit(task, json!({ "kind": "status", "status": "pushed", "message": format!("Pushed {}", task.branch) }));
     } else {
         state.emit(task, json!({ "kind": "status", "status": "no-changes", "message": "No workspace changes to commit" }));
     }
 
     // Publish output artifacts.
-    publish_artifacts(state, task).await;
+    ensure_task_active(task)?;
+    publish_artifacts(state, task).await?;
 
-    if let Some(claim) = &claim {
-        state.control_plane.transition(claim, "in_review").await;
-    }
     Ok(())
+}
+
+/// Keep the exact work-item election alive from the first post-claim mutation
+/// through provider execution, commit, push, artifacts, and the terminal state
+/// transition. A renewal failure cancels and drains the active operation before
+/// returning so no child process can keep mutating under stale authority.
+async fn run_claimed_lifecycle(
+    state: &AppState,
+    task: &Arc<TaskState>,
+    claim: &WorkClaim,
+) -> Result<(), String> {
+    let lifecycle = async {
+        let execution = run_task_lifecycle(state, task, Some(claim)).await;
+        let terminal_status =
+            claimed_terminal_status(task.cancelled.load(Ordering::SeqCst), execution.is_ok());
+        let transition = state.control_plane.transition(claim, terminal_status).await;
+
+        match (execution, transition) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(transition_error)) => Err(format!(
+                "{error}; additionally could not persist {terminal_status} state: {transition_error}"
+            )),
+            (Ok(()), Err(review_error)) => {
+                // If the success transition was definitively rejected, do not
+                // leave a known-running item behind. A lost response can make
+                // this recovery conflict, in which case return both errors.
+                match state.control_plane.transition(claim, "failed").await {
+                    Ok(()) => Err(format!(
+                        "could not persist awaiting_review state; marked work failed: {review_error}"
+                    )),
+                    Err(failed_error) => Err(format!(
+                        "could not persist awaiting_review state: {review_error}; additionally could not persist failed state: {failed_error}"
+                    )),
+                }
+            }
+        }
+    };
+    tokio::pin!(lifecycle);
+    let mut renewals = tokio::time::interval(CLAIM_RENEW_INTERVAL);
+    renewals.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // `interval`'s first tick is immediate; the transition that put the work in
+    // `running` already renewed it, so consume that tick before selecting.
+    renewals.tick().await;
+
+    loop {
+        tokio::select! {
+            result = &mut lifecycle => return result,
+            _ = renewals.tick() => {
+                if let Err(error) = state.control_plane.renew_claim(claim).await {
+                    task.cancel.cancel();
+                    let cleanup = lifecycle.await;
+                    return match cleanup {
+                        Ok(()) => Err(format!("lost work-item authority during task lifecycle: {error}")),
+                        Err(cleanup_error) => Err(format!(
+                            "lost work-item authority during task lifecycle: {error}; cancellation cleanup: {cleanup_error}"
+                        )),
+                    };
+                }
+            }
+        }
+    }
+}
+
+fn claimed_terminal_status(cancelled_by_request: bool, execution_succeeded: bool) -> &'static str {
+    if cancelled_by_request {
+        "cancelled"
+    } else if execution_succeeded {
+        "awaiting_review"
+    } else {
+        "failed"
+    }
+}
+
+fn ensure_task_active(task: &TaskState) -> Result<(), String> {
+    if task.cancel.is_cancelled() {
+        if task.cancelled.load(Ordering::SeqCst) {
+            Err("task cancelled by request".to_string())
+        } else {
+            Err("task cancelled after loss of work-item authority".to_string())
+        }
+    } else {
+        Ok(())
+    }
 }
 
 async fn run_agent(state: &AppState, task: &Arc<TaskState>) -> Result<(), String> {
@@ -244,30 +475,47 @@ async fn apply_deterministic_append(
     task: &Arc<TaskState>,
     edit: &prompt::AppendFileEdit,
 ) -> Result<bool, String> {
+    ensure_task_active(task)?;
     let rel = safe_repo_relative(&task.session.workspace_path, &edit.relative_path)?;
     let target = std::path::Path::new(&task.session.workspace_path).join(&rel);
     if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        ensure_task_active(task)?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     let existing = tokio::fs::read_to_string(&target).await.unwrap_or_default();
-    let prefix = if !existing.is_empty() && !existing.ends_with('\n') { "\n" } else { "" };
+    let prefix = if !existing.is_empty() && !existing.ends_with('\n') {
+        "\n"
+    } else {
+        ""
+    };
     let suffix = if edit.text.ends_with('\n') { "" } else { "\n" };
     let mut contents = existing;
     contents.push_str(prefix);
     contents.push_str(&edit.text);
     contents.push_str(suffix);
-    tokio::fs::write(&target, contents).await.map_err(|e| e.to_string())?;
-    state.emit(task, json!({
-        "kind": "status",
-        "status": "deterministic-edit:append-file",
-        "message": format!("Appended {} character(s) to {}", edit.text.len(), rel),
-    }));
+    ensure_task_active(task)?;
+    tokio::fs::write(&target, contents)
+        .await
+        .map_err(|e| e.to_string())?;
+    state.emit(
+        task,
+        json!({
+            "kind": "status",
+            "status": "deterministic-edit:append-file",
+            "message": format!("Appended {} character(s) to {}", edit.text.len(), rel),
+        }),
+    );
     Ok(true)
 }
 
 /// Reject unsafe / out-of-repo / generated paths (`safeRepoRelativePath`).
 fn safe_repo_relative(workspace: &str, raw: &str) -> Result<String, String> {
-    let trimmed = raw.trim().trim_start_matches("./").trim_end_matches([')', ',', '.', ';', ':']);
+    let trimmed = raw
+        .trim()
+        .trim_start_matches("./")
+        .trim_end_matches([')', ',', '.', ';', ':']);
     if trimmed.is_empty() || trimmed.contains('\0') || std::path::Path::new(trimmed).is_absolute() {
         return Err(format!("refusing unsafe append path: {raw}"));
     }
@@ -277,10 +525,8 @@ fn safe_repo_relative(workspace: &str, raw: &str) -> Result<String, String> {
         use std::path::Component;
         match comp {
             Component::ParentDir => return Err(format!("refusing append outside repo: {raw}")),
-            Component::Normal(p) => {
-                if blocked.iter().any(|b| p == std::ffi::OsStr::new(b)) {
-                    return Err(format!("refusing append into generated path: {raw}"));
-                }
+            Component::Normal(p) if blocked.iter().any(|b| p == std::ffi::OsStr::new(b)) => {
+                return Err(format!("refusing append into generated path: {raw}"));
             }
             _ => {}
         }
@@ -294,33 +540,37 @@ fn safe_repo_relative(workspace: &str, raw: &str) -> Result<String, String> {
 }
 
 /// Scan `${OUTPUTS_DIR}/<taskId>/` and publish each file (`publishArtifact` loop).
-async fn publish_artifacts(state: &AppState, task: &Arc<TaskState>) {
+async fn publish_artifacts(state: &AppState, task: &Arc<TaskState>) -> Result<(), String> {
+    ensure_task_active(task)?;
     let dir = std::path::Path::new(&state.config.outputs_dir).join(&task.task_id);
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
-        return;
+        return Ok(());
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
+        ensure_task_active(task)?;
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        match state
-            .storage
-            .publish(PublishOptions {
-                task_id: task.task_id.clone(),
-                file_path: path.to_string_lossy().to_string(),
-                filename: None,
-            })
-            .await
-        {
+        let publish = state.storage.publish(PublishOptions {
+            task_id: task.task_id.clone(),
+            file_path: path.to_string_lossy().to_string(),
+            filename: None,
+        });
+        tokio::pin!(publish);
+        let result = tokio::select! {
+            result = &mut publish => result,
+            _ = task.cancel.cancelled() => return ensure_task_active(task),
+        };
+        match result {
             Ok(artifact) => state.emit(task, json!({ "kind": "artifact", "artifact": artifact })),
-            Err(e) => state.emit(task, json!({ "kind": "stderr", "text": format!("artifact publish failed: {e}") })),
+            Err(e) => state.emit(
+                task,
+                json!({ "kind": "stderr", "text": format!("artifact publish failed: {e}") }),
+            ),
         }
     }
-}
-
-fn repo_display(state: &AppState) -> String {
-    state.config.repo_url.clone().unwrap_or_else(|| "unknown-repo".into())
+    Ok(())
 }
 
 fn first_line(s: &str) -> String {
@@ -330,4 +580,17 @@ fn first_line(s: &str) -> String {
 /// Build the strict env for a provider (re-exported for tests / callers).
 pub fn agent_env(provider: crate::agents::AgentProvider) -> HashMap<String, String> {
     build_agent_env(provider)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::claimed_terminal_status;
+
+    #[test]
+    fn claimed_lifecycle_uses_control_plane_status_spellings() {
+        assert_eq!(claimed_terminal_status(false, true), "awaiting_review");
+        assert_eq!(claimed_terminal_status(false, false), "failed");
+        assert_eq!(claimed_terminal_status(true, true), "cancelled");
+        assert_eq!(claimed_terminal_status(true, false), "cancelled");
+    }
 }

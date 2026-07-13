@@ -47,6 +47,7 @@ const MAX_ACTIVE_TASKS: usize = 256;
 
 /// `X-Server-Auth` gate (`serverAuthSecret`). Returns 401 when unconfigured or
 /// mismatched — the same fail-closed behaviour as the Node service.
+#[allow(clippy::result_large_err)]
 fn require_server_auth(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
     let secret = state.config.server_auth_secret.as_deref();
     let presented = headers.get("x-server-auth").and_then(|v| v.to_str().ok());
@@ -306,6 +307,13 @@ async fn cancel_task(State(st): State<AppState>, Path(task_id): Path<String>, he
     let Some(task) = st.tasks.lock().get(&task_id).cloned() else {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response();
     };
+    if task.is_finished() {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "task already finished" })),
+        )
+            .into_response();
+    }
     task.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
     task.cancel.cancel();
     st.emit(&task, json!({ "kind": "status", "status": "cancelling", "message": "Cancellation requested" }));
@@ -326,6 +334,7 @@ struct ThreadControlBody {
     message: Option<String>,
 }
 
+#[allow(clippy::result_large_err)]
 fn resolved_branch(st: &AppState, body: &ThreadControlBody) -> Result<String, Response> {
     if let Some(b) = body.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         return Ok(b.to_string());
@@ -338,9 +347,32 @@ fn resolved_branch(st: &AppState, body: &ThreadControlBody) -> Result<String, Re
     Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "no active thread branch; pass branch" }))).into_response())
 }
 
+fn manual_external_mutation_allowed(control_plane_enabled: bool) -> bool {
+    !control_plane_enabled
+}
+
+fn reject_unclaimed_external_mutation(st: &AppState) -> Option<Response> {
+    if manual_external_mutation_allowed(st.control_plane.enabled()) {
+        return None;
+    }
+    Some(
+        (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "control_plane_claim_required",
+                "detail": "manual merge, push, and PR routes are disabled while control-plane governance is enabled; dispatch a claimed task instead"
+            })),
+        )
+            .into_response(),
+    )
+}
+
 async fn merge_upstream(State(st): State<AppState>, headers: HeaderMap, Json(body): Json<ThreadControlBody>) -> Response {
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
+    }
+    if let Some(response) = reject_unclaimed_external_mutation(&st) {
+        return response;
     }
     let branch = match resolved_branch(&st, &body) {
         Ok(b) => b,
@@ -356,6 +388,9 @@ async fn make_commit(State(st): State<AppState>, headers: HeaderMap, Json(body):
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
     }
+    if let Some(response) = reject_unclaimed_external_mutation(&st) {
+        return response;
+    }
     let branch = match resolved_branch(&st, &body) {
         Ok(b) => b,
         Err(r) => return r,
@@ -370,6 +405,9 @@ async fn open_pr(State(st): State<AppState>, headers: HeaderMap, Json(body): Jso
     if let Err(r) = require_server_auth(&st, &headers) {
         return r;
     }
+    if let Some(response) = reject_unclaimed_external_mutation(&st) {
+        return response;
+    }
     let branch = match resolved_branch(&st, &body) {
         Ok(b) => b,
         Err(r) => return r,
@@ -378,5 +416,16 @@ async fn open_pr(State(st): State<AppState>, headers: HeaderMap, Json(body): Jso
     match thread_ops::open_pr(&st, &branch, title).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod governance_tests {
+    use super::manual_external_mutation_allowed;
+
+    #[test]
+    fn governed_manual_thread_mutations_fail_closed() {
+        assert!(!manual_external_mutation_allowed(true));
+        assert!(manual_external_mutation_allowed(false));
     }
 }

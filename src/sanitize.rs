@@ -18,6 +18,8 @@ const SECRET_ENV_KEYS: &[&str] = &[
     "XAI_API_KEY", "XAI_API_KEYS", "XAI_API_KEYS_JSON",
     "GROK_API_KEY", "GROK_API_KEYS", "GROK_API_KEYS_JSON",
     "GH_PAT", "GH_DEPLOY_KEY", "SERVER_AUTH_SECRET", "EVENT_INGEST_SECRET",
+    "FIDUCIA_CONTROL_PLANE_SECRET", "FIDUCIA_INTERNAL_SECRET",
+    "FIDUCIA_NODE_INTERNAL_SECRET",
     "SUPABASE_SERVICE_ROLE_KEY",
     "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
 ];
@@ -94,10 +96,15 @@ mod tests {
     #[test]
     fn redacts_env_configured_secret_values() {
         std::env::set_var("GH_PAT", "supersecretvalue123");
-        let s = sanitize_event_text("leaking supersecretvalue123 into a log");
+        std::env::set_var("FIDUCIA_NODE_INTERNAL_SECRET", "node-secret-value-456");
+        let s = sanitize_event_text(
+            "leaking supersecretvalue123 and node-secret-value-456 into a log",
+        );
         assert!(s.contains("[redacted-secret]"), "{s}");
         assert!(!s.contains("supersecretvalue123"));
+        assert!(!s.contains("node-secret-value-456"));
         std::env::remove_var("GH_PAT");
+        std::env::remove_var("FIDUCIA_NODE_INTERNAL_SECRET");
     }
 
     #[test]

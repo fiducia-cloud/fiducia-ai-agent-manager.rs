@@ -11,10 +11,15 @@ creation is an explicit action.
 ## Governance & architecture
 
 The worker is **governed by the [fiducia-ai-agent-control-plane](../fiducia-ai-agent-control-plane)**:
-on boot it registers as an agent; per task it **claims the backing work-item**
-(receiving a fiducia-node **fencing token**) and reports state transitions. Any
-external mutation (git push, PR) verifies the fencing token first, so a stale
-worker cannot act. See the repo's `messaging-architecture` note.
+on boot it registers as an agent and retains the authoritative id returned by
+the control plane; per task it **claims the backing work-item** (receiving a
+fiducia-node **fencing token**) and reports state transitions. The worker renews
+the exact `ai-work:<work-item-id>` election throughout the complete claimed
+lifecycle: deterministic edits, provider execution, commit, push, artifact
+publication, and the final state transition. It also renews immediately before
+push. Direct node calls carry both internal authentication and the same org scope
+used by the control plane. A refusal, outage, malformed response, or stale token
+fails closed.
 
 | Concern | Mechanism |
 | --- | --- |
@@ -33,9 +38,9 @@ All routes except `/healthz` / `/status` / `/agents` require `X-Server-Auth`.
 | POST | `/tasks` | Queue a task `{ prompt, taskId?, threadId?, provider? }` |
 | GET | `/stream/{taskId}` | Server-Sent Events of agent activity (resumable) |
 | POST | `/tasks/{taskId}/cancel` | Cancel an in-flight task |
-| POST | `/thread/merge-upstream` | Merge base into the thread branch |
-| POST | `/thread/make-commit` | Commit + push the workspace |
-| POST | `/thread/open-pr` | Open/reuse a draft PR (`gh`) |
+| POST | `/thread/merge-upstream` | Merge base into the thread branch (standalone mode only) |
+| POST | `/thread/make-commit` | Commit + push the workspace (standalone mode only) |
+| POST | `/thread/open-pr` | Open/reuse a draft PR (`gh`; standalone mode only) |
 | GET | `/tasks` | List tasks |
 | GET | `/healthz`, `/status`, `/agents` | Ops surfaces |
 
@@ -43,8 +48,14 @@ All routes except `/healthz` / `/status` / `/agents` require `X-Server-Auth`.
 
 ```sh
 cargo build --release --locked
+# Inject these with the deployment secret manager; they intentionally have no
+# CLI flag equivalents.
+export FIDUCIA_CONTROL_PLANE_SECRET=…
+export FIDUCIA_NODE_INTERNAL_SECRET=…
 PORT=8080 SERVER_AUTH_SECRET=… NATS_URL=nats://… \
   CONTROL_PLANE_URL=http://fiducia-ai-agent-control-plane:8080 \
+  FIDUCIA_NODE_URL=http://fiducia-node:8080 \
+  FIDUCIA_NODE_ORG_ID=fiducia-ai-control-plane \
   WORKSPACE_REPO=/home/node/workspace/repo BASE_BRANCH=dev \
   ./target/release/fiducia-ai-agent-manager
 ```
@@ -73,10 +84,12 @@ Every knob is read once at boot from the environment (`src/config.rs`,
 | `NATS_URL` | string | — | NATS server (live + durable events) |
 | `NATS_EVENT_SUBJECT` | string | `fiducia.executions.progress.v1` | Progress event subject |
 | `CONTROL_PLANE_URL` / `FIDUCIA_CONTROL_PLANE_URL` | string | — | Control-plane base URL |
-| `FIDUCIA_NODE_URL` | string | — | fiducia-node for fencing-token verification |
+| `FIDUCIA_NODE_URL` | string | — | fiducia-node for exact work-election renewal; required with `CONTROL_PLANE_URL` |
+| `FIDUCIA_NODE_INTERNAL_SECRET` / `FIDUCIA_INTERNAL_SECRET` | string (**secret; env-only**) | — | `x-fiducia-internal-auth` for the trusted node hop; required with `CONTROL_PLANE_URL` |
+| `FIDUCIA_NODE_ORG_ID` | string | `fiducia-ai-control-plane` | Stable `x-fiducia-org-id` scope shared with the control plane |
 | `EVENT_INGEST_URL` | string | — | Optional external event ingest endpoint |
 | `SERVER_AUTH_SECRET` | string (**secret**) | — | `X-Server-Auth` gate on mutating routes |
-| `FIDUCIA_CONTROL_PLANE_SECRET` / `FIDUCIA_INTERNAL_SECRET` | string (**secret**) | — | `x-internal-auth` to the control plane |
+| `FIDUCIA_CONTROL_PLANE_SECRET` / `FIDUCIA_INTERNAL_SECRET` | string (**secret; env-only**) | — | `x-internal-auth` to the control plane; required with `CONTROL_PLANE_URL` |
 | `EVENT_INGEST_SECRET` | string (**secret**) | — | Bearer secret for the ingest endpoint |
 
 Per-provider agent credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
@@ -98,6 +111,11 @@ scripts/with-flags2env.sh --port 8080 --nats-url nats://localhost:4222 -- \
   ./target/release/fiducia-ai-agent-manager
 ```
 
+`--fiducia-node-org-id` configures the non-secret org scope. Control-plane and
+node internal secrets are listed under `.cli-flags.toml`'s `[env].ignore` and
+must be injected as environment variables by a secret manager; they are never
+accepted on argv.
+
 ## Security
 
 - **Audit:** `cargo audit` is green (`cargo audit` exits 0). See
@@ -114,6 +132,31 @@ scripts/with-flags2env.sh --port 8080 --nats-url nats://localhost:4222 -- \
   unconfigured or mismatched.
 - **Input handling:** no `unwrap`/`panic` on request-derived input; JSON bodies
   are size-limited and parsed fallibly. Secrets are never written to logs.
+- **Container privilege:** the runtime is explicitly labelled
+  `tool-runner-nonroot` because the worker must spawn Git, `gh`, and provider
+  CLIs and therefore cannot use a distroless image. The shipped image still
+  runs as numeric uid/gid `65532:65532`, owns only its workspace directories,
+  and copies the manager binary with that ownership. Images layered with agent
+  tooling must preserve those three invariants and must not switch back to root.
+  The base runtime includes Git, OpenSSH, and `gh`; provider-specific CLIs are
+  intentionally supplied by the deployment's derived image.
+- **Bounded, exact authority checks:** control-plane requests use a 5-second
+  connect and 10-second total deadline; optional event ingest uses a 5-second
+  connect and 15-second total deadline. Direct fiducia-node election renewals
+  are capped at 10 seconds and use the authenticated, org-scoped internal node
+  client. Governed startup requires both service URLs, both normalized secrets,
+  a valid node org, and the returned registered-agent id. Every claimed task
+  renews its exact `ai-work:<id>` election every 10 seconds from its first edit
+  through provider, commit, push, artifacts, and the final transition, plus an
+  exact renewal immediately before push. Any refusal or malformed
+  candidate/token response fails closed.
+- **Cancellation and durable lifecycle:** cancellation is checked before each
+  filesystem, Git, push, and artifact mutation. Git children use
+  `kill_on_drop`, are explicitly killed, and are awaited on cancellation or
+  timeout. Once a work item reaches `running`, every normal exit is persisted as
+  `awaiting_review`, `failed`, or `cancelled` under the same live claim. The
+  unclaimed merge-upstream, manual push, and PR routes are all disabled in
+  governed mode.
 
 ## Scope note
 
