@@ -24,14 +24,16 @@ fails closed.
 | Concern | Mechanism |
 | --- | --- |
 | Governance / authority | **fiducia-ai-agent-control-plane** over HTTP (`fiducia-clients`), fiducia-node fencing tokens |
-| Messaging | **NATS** — Core for live progress, JetStream for durable execution-lifecycle events |
+| Messaging | `fiducia-messaging` envelope; **NATS** Core for live progress and JetStream with `Nats-Msg-Id` dedup for lifecycle events |
 | Event delivery | per-task SSE replay + live, circuit-breaker ingest, log sink |
+| Telemetry | `fiducia-telemetry` structured logs + optional OTLP traces; Prometheus `/metrics` for ingest/log/NATS failures |
 | Agent runners | CLI runner over the 7-provider taxonomy (`agents`) |
 | Shared types | `fiducia-interfaces` |
 
 ## HTTP API
 
-All routes except `/healthz` / `/status` / `/agents` require `X-Server-Auth`.
+All routes except `/healthz` / `/status` / `/agents` / `/metrics` require
+`X-Server-Auth`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -42,7 +44,7 @@ All routes except `/healthz` / `/status` / `/agents` require `X-Server-Auth`.
 | POST | `/thread/make-commit` | Commit + push the workspace (standalone mode only) |
 | POST | `/thread/open-pr` | Open/reuse a draft PR (`gh`; standalone mode only) |
 | GET | `/tasks` | List tasks |
-| GET | `/healthz`, `/status`, `/agents` | Ops surfaces |
+| GET | `/healthz`, `/status`, `/agents`, `/metrics` | Ops surfaces |
 
 ## Build & run
 
@@ -78,10 +80,11 @@ Every knob is read once at boot from the environment (`src/config.rs`,
 | `REMOTE_DEV_THREAD_ID` / `THREAD_ID` | string | — | Thread this worker is pinned to |
 | `OUTPUTS_DIR` | string | `/home/node/workspace/outputs` | Task artifact directory |
 | `LOG_DIR` | string | `/tmp/convos` | Per-conversation log directory |
-| `LOG_FORMAT` | string | human | `json` for structured logs |
+| `FIDUCIA_LOG_FORMAT` | string | `json` | `text` for compact local logs; `OTEL_LOG_FORMAT` then legacy `LOG_FORMAT` are fallbacks |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | string | — | Optional local collector OTLP gRPC endpoint; exporter failure falls back to stdout |
 | `AGENT_RUN_TIMEOUT_MS` | integer | `7200000` | Per-task agent timeout |
 | `IDLE_TIMEOUT_MS` | integer | `1800000` | Idle shutdown window |
-| `NATS_URL` | string | — | NATS server (live + durable events) |
+| `NATS_URL` | string | — | NATS server (live + durable events); initial failures retry every five seconds and are counted |
 | `NATS_EVENT_SUBJECT` | string | `fiducia.executions.progress.v1` | Progress event subject |
 | `CONTROL_PLANE_URL` / `FIDUCIA_CONTROL_PLANE_URL` | string | — | Control-plane base URL |
 | `FIDUCIA_NODE_URL` | string | — | fiducia-node for exact work-election renewal; required with `CONTROL_PLANE_URL` |
@@ -120,8 +123,10 @@ accepted on argv.
 ### Reproducible cross-repository inputs
 
 CI and the Docker build use `fiducia-interfaces` commit
-`487e470c45ab5851e8f6f3b1dc048fe067fbf408` and `fiducia-clients` commit
-`bcf2f868697a96d82151c0e4bf0efae258b234e9`. The Dockerfile fetches each full
+`487e470c45ab5851e8f6f3b1dc048fe067fbf408`, `fiducia-clients` commit
+`bcf2f868697a96d82151c0e4bf0efae258b234e9`, `fiducia-messaging.rs` commit
+`416df78b2ca6132990150572933f3908728b2aab`, and `fiducia-telemetry.rs` commit
+`b5663ee10367b5dfeac74d44922615226c75b7b2`. The Dockerfile fetches each full
 object id, checks it out detached, verifies `HEAD`, and then builds with
 `cargo --locked`; CI checks out the same refs and pins every action and tool
 version. Update the Docker arguments and workflow refs together when adopting a
@@ -161,6 +166,10 @@ reviewed dependency change.
   `awaiting_review`, `failed`, or `cancelled` under the same live claim. The
   unclaimed merge-upstream, manual push, and PR routes are all disabled in
   governed mode.
+- **Visible delivery degradation:** lifecycle events use the standard envelope
+  and tenant-scoped JetStream dedup header. Failed JetStream publishes fall back
+  to Core NATS, and final failures, reconnect attempts, ingest exhaustion, and
+  log-sink errors are logged and exposed at `/metrics`; none grant authority.
 
 ## Scope note
 

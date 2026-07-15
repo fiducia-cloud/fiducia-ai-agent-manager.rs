@@ -9,12 +9,16 @@ use fiducia_ai_agent_manager::state::AppState;
 use fiducia_ai_agent_manager::storage::LocalStorage;
 use parking_lot::Mutex;
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    fiducia_telemetry::init("fiducia-ai-agent-manager");
+    let result = run().await;
+    fiducia_telemetry::shutdown();
+    result
+}
 
+async fn run() -> anyhow::Result<()> {
     let config = Config::from_env();
     let instance_id = uuid::Uuid::new_v4().to_string();
     info!(
@@ -97,20 +101,6 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
-}
-
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,fiducia_ai_agent_manager=debug"));
-    let json = std::env::var("LOG_FORMAT")
-        .map(|v| v == "json")
-        .unwrap_or(false);
-    let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    if json {
-        builder.json().init();
-    } else {
-        builder.init();
-    }
 }
 
 async fn shutdown_signal() {

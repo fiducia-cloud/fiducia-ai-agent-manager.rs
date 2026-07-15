@@ -72,6 +72,10 @@ pub struct EventBus {
     nats: Arc<Nats>,
     subject: String,
     emitted: AtomicU64,
+    ingest_attempts: AtomicU64,
+    ingest_successes: AtomicU64,
+    ingest_failures: AtomicU64,
+    log_write_failures: AtomicU64,
 }
 
 fn now_ms() -> i64 {
@@ -106,6 +110,10 @@ impl EventBus {
             nats,
             subject,
             emitted: AtomicU64::new(0),
+            ingest_attempts: AtomicU64::new(0),
+            ingest_successes: AtomicU64::new(0),
+            ingest_failures: AtomicU64::new(0),
+            log_write_failures: AtomicU64::new(0),
         })
     }
 
@@ -185,6 +193,35 @@ impl EventBus {
         self.tasks.lock().contains_key(task_id)
     }
 
+    pub fn metrics_text(&self) -> String {
+        let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+        let circuit_open = u64::from(self.circuit.lock().is_open);
+        format!(
+            concat!(
+                "# HELP fiducia_agent_events_emitted_total Events accepted by the local event bus.\n",
+                "# TYPE fiducia_agent_events_emitted_total counter\n",
+                "fiducia_agent_events_emitted_total {}\n",
+                "# HELP fiducia_agent_ingest_attempts_total Event-ingest side-channel requests started.\n",
+                "# TYPE fiducia_agent_ingest_attempts_total counter\n",
+                "fiducia_agent_ingest_attempts_total {}\n",
+                "# TYPE fiducia_agent_ingest_successes_total counter\n",
+                "fiducia_agent_ingest_successes_total {}\n",
+                "# TYPE fiducia_agent_ingest_failures_total counter\n",
+                "fiducia_agent_ingest_failures_total {}\n",
+                "# TYPE fiducia_agent_log_write_failures_total counter\n",
+                "fiducia_agent_log_write_failures_total {}\n",
+                "# TYPE fiducia_agent_ingest_circuit_open gauge\n",
+                "fiducia_agent_ingest_circuit_open {}\n"
+            ),
+            load(&self.emitted),
+            load(&self.ingest_attempts),
+            load(&self.ingest_successes),
+            load(&self.ingest_failures),
+            load(&self.log_write_failures),
+            circuit_open,
+        ) + &self.nats.metrics_text()
+    }
+
     /// GC a finished task's replay buffer (`gcTask`).
     pub fn gc_task(&self, task_id: &str) {
         self.tasks.lock().remove(task_id);
@@ -231,11 +268,13 @@ impl EventBus {
         let url = ingest.url.clone();
         let secret = ingest.secret.clone();
         let body = serde_json::json!({ "taskId": task_id, "seq": seq, "event": event });
+        let task_id = task_id.to_string();
         let bus = self.clone();
         let http = self.http.clone();
         tokio::spawn(async move {
             // Up to 5 attempts with exponential backoff (1s,2s,4s,… capped 30s).
             for attempt in 0..5u32 {
+                bus.ingest_attempts.fetch_add(1, Ordering::Relaxed);
                 let res = http
                     .post(&url)
                     .header("Content-Type", "application/json")
@@ -246,6 +285,7 @@ impl EventBus {
                 match res {
                     Ok(r) if r.status().is_success() => {
                         bus.record_success();
+                        bus.ingest_successes.fetch_add(1, Ordering::Relaxed);
                         return;
                     }
                     _ => {
@@ -255,11 +295,17 @@ impl EventBus {
                 }
             }
             bus.record_failure();
+            bus.ingest_failures.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                task_id,
+                seq,
+                "event ingest exhausted retries; circuit failure recorded"
+            );
         });
     }
 
     fn spawn_log_sink(
-        &self,
+        self: &Arc<Self>,
         thread_id: Option<String>,
         task_id: &str,
         seq: i64,
@@ -270,24 +316,7 @@ impl EventBus {
             Some(t) => format!("{}/{}", self.log_dir, t),
             None => self.log_dir.clone(),
         };
-        let detail = match kind {
-            "status" => format!(
-                " status={}",
-                event.get("status").and_then(|v| v.as_str()).unwrap_or("?")
-            ),
-            "error" => {
-                let m = event.get("message").and_then(|v| v.as_str()).unwrap_or("");
-                format!(" message={}", &m[..m.len().min(200)])
-            }
-            "done" => format!(
-                " exitReason={}",
-                event
-                    .get("exitReason")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?")
-            ),
-            _ => String::new(),
-        };
+        let detail = event_log_detail(kind, event);
         let line = format!(
             "[{}] task={} seq={} kind={}{}\n",
             chrono::Utc::now().to_rfc3339(),
@@ -296,17 +325,31 @@ impl EventBus {
             kind,
             detail
         );
+        let bus = self.clone();
         tokio::spawn(async move {
-            let _ = tokio::fs::create_dir_all(&dir).await;
+            if let Err(error) = tokio::fs::create_dir_all(&dir).await {
+                bus.log_write_failures.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(%error, directory = %dir, "failed to create event log directory");
+                return;
+            }
             let path = format!("{dir}/thread.log");
             use tokio::io::AsyncWriteExt;
-            if let Ok(mut f) = tokio::fs::OpenOptions::new()
+            match tokio::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&path)
                 .await
             {
-                let _ = f.write_all(line.as_bytes()).await;
+                Ok(mut file) => {
+                    if let Err(error) = file.write_all(line.as_bytes()).await {
+                        bus.log_write_failures.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(%error, %path, "failed to append event log");
+                    }
+                }
+                Err(error) => {
+                    bus.log_write_failures.fetch_add(1, Ordering::Relaxed);
+                    tracing::warn!(%error, %path, "failed to open event log");
+                }
             }
         });
     }
@@ -333,10 +376,37 @@ impl EventBus {
             .and_then(|k| k.as_str())
             .unwrap_or("event")
             .to_string();
+        let idempotency_key = format!("agent-task:{task_id}:seq:{seq}");
         tokio::spawn(async move {
-            let envelope = MessageEnvelope::new(format!("execution.{kind}"), payload);
+            let envelope =
+                MessageEnvelope::new(format!("execution.{kind}"), payload, idempotency_key)
+                    .with_source("fiducia-ai-agent-manager");
             nats.publish_event(&subject, &envelope).await;
         });
+    }
+}
+
+fn event_log_detail(kind: &str, event: &Value) -> String {
+    match kind {
+        "status" => format!(
+            " status={}",
+            event.get("status").and_then(Value::as_str).unwrap_or("?")
+        ),
+        "error" => {
+            let message = event.get("message").and_then(Value::as_str).unwrap_or("");
+            // Character-based clipping avoids panicking in the background log
+            // task when byte 200 lands inside a multi-byte UTF-8 code point.
+            let clipped: String = message.chars().take(200).collect();
+            format!(" message={clipped}")
+        }
+        "done" => format!(
+            " exitReason={}",
+            event
+                .get("exitReason")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+        ),
+        _ => String::new(),
     }
 }
 
@@ -439,5 +509,12 @@ mod tests {
         let text = history[0].event["text"].as_str().unwrap();
         assert!(text.contains("[redacted-anthropic-key]"), "{text}");
         assert!(!text.contains("sk-ant-"));
+    }
+
+    #[test]
+    fn error_log_detail_clips_multibyte_text_on_character_boundaries() {
+        let message = "😀".repeat(250);
+        let detail = event_log_detail("error", &json!({ "message": message }));
+        assert_eq!(detail.chars().filter(|ch| *ch == '😀').count(), 200);
     }
 }

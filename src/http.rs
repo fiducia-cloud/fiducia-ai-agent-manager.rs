@@ -24,6 +24,7 @@ use crate::thread_ops;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/metrics", get(metrics))
         .route("/status", get(status))
         .route("/agents", get(agents))
         .route("/tasks", get(list_tasks).post(dispatch_task))
@@ -80,8 +81,19 @@ async fn status(State(st): State<AppState>) -> impl IntoResponse {
         "baseBranch": st.config.base_branch,
         "controlPlane": st.control_plane.enabled(),
         "natsConfigured": st.config.nats_url.is_some(),
+        "nats": st.nats.snapshot(),
         "activeTasks": st.tasks.lock().len(),
     }))
+}
+
+async fn metrics(State(st): State<AppState>) -> impl IntoResponse {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
+        st.bus.metrics_text(),
+    )
 }
 
 async fn agents(State(st): State<AppState>) -> impl IntoResponse {

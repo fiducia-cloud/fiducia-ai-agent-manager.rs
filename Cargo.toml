@@ -32,7 +32,6 @@ serde_json = "1"
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Talking to the control plane, event ingest, and heartbeat endpoints.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -47,6 +46,10 @@ bytes = "1"
 fiducia-interfaces = { path = "../fiducia-interfaces/generated/rust" }
 # Rust fiducia client (fiducia-node coordination — fencing-token verification).
 fiducia-client = { path = "../fiducia-clients/clients/rust" }
+# Shared message framing, JetStream deduplication, and telemetry setup. Keep
+# async-nats above for Core-NATS live progress and the durable-publish fallback.
+fiducia-messaging = { path = "../fiducia-messaging.rs", features = ["nats"] }
+fiducia-telemetry = { path = "../fiducia-telemetry.rs" }
 
 [features]
 default = []
