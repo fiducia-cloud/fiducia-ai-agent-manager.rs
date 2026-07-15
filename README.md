@@ -78,7 +78,7 @@ Every knob is read once at boot from the environment (`src/config.rs`,
 | `REMOTE_DEV_THREAD_ID` / `THREAD_ID` | string | — | Thread this worker is pinned to |
 | `OUTPUTS_DIR` | string | `/home/node/workspace/outputs` | Task artifact directory |
 | `LOG_DIR` | string | `/tmp/convos` | Per-conversation log directory |
-| `LOG_FORMAT` | string | human | `json` for structured logs |
+| `LOG_FORMAT` | string | json | Logging/tracing comes from the shared `fiducia-telemetry` crate: JSON by default, `LOG_FORMAT=text` for human-readable, OTLP via `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | `AGENT_RUN_TIMEOUT_MS` | integer | `7200000` | Per-task agent timeout |
 | `IDLE_TIMEOUT_MS` | integer | `1800000` | Idle shutdown window |
 | `NATS_URL` | string | — | NATS server (live + durable events) |
