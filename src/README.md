@@ -1,7 +1,7 @@
-# Agent manager source
+# src
 
-The service is split into HTTP/task orchestration, governed control-plane
-authority, local replay/log storage, and NATS delivery. `fiducia-node` fencing
-decides who may mutate external systems; NATS is only event delivery. New
-modules should emit structured tracing and expose operational failures rather
-than discard them.
+The agent manager: task orchestration (`orchestrator.rs`, `thread_ops.rs`),
+HTTP + SSE surface (`http.rs`), the in-process event bus with NATS mirroring
+(`event_bus.rs`, `nats.rs` — JetStream with tenant-scoped dedup ids and a
+logged core fallback), the shared envelope (`messaging.rs`), and state
+(`state.rs`). Logging/tracing comes from the shared `fiducia-telemetry` init.

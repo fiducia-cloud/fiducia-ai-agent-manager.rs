@@ -25,6 +25,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/metrics", get(metrics))
+        .route("/readyz", get(healthz))
         .route("/status", get(status))
         .route("/agents", get(agents))
         .route("/tasks", get(list_tasks).post(dispatch_task))
@@ -37,6 +38,10 @@ pub fn router(state: AppState) -> Router {
         // A dispatch body is a prompt (<=64 KiB) plus small metadata; cap the
         // accepted body at 256 KiB so an oversized POST is rejected pre-buffer.
         .layer(DefaultBodyLimit::max(256 * 1024))
+        // Fleet convention: hardening layers last — catch-panic outermost so a
+        // panicking handler becomes a 500 instead of a dropped connection.
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .with_state(state)
 }
 

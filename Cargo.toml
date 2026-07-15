@@ -32,6 +32,7 @@ serde_json = "1"
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
+tower-http = { version = "0.6", features = ["trace", "catch-panic"] }
 # Talking to the control plane, event ingest, and heartbeat endpoints.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4", "serde"] }

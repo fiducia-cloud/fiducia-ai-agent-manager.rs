@@ -503,6 +503,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tower-http",
  "tracing",
  "uuid",
 ]
@@ -536,6 +537,8 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -2229,10 +2232,12 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
 ]
 
