@@ -80,7 +80,7 @@ Every knob is read once at boot from the environment (`src/config.rs`,
 | `REMOTE_DEV_THREAD_ID` / `THREAD_ID` | string | — | Thread this worker is pinned to |
 | `OUTPUTS_DIR` | string | `/home/node/workspace/outputs` | Task artifact directory |
 | `LOG_DIR` | string | `/tmp/convos` | Per-conversation log directory |
-| `FIDUCIA_LOG_FORMAT` | string | `json` | `text` for compact local logs; `OTEL_LOG_FORMAT` then legacy `LOG_FORMAT` are fallbacks |
+| `FIDUCIA_LOG_FORMAT` | string | `json` | Logging/tracing comes from the shared `fiducia-telemetry` crate; `text` for compact local logs (`OTEL_LOG_FORMAT` then legacy `LOG_FORMAT` are fallbacks) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | string | — | Optional local collector OTLP gRPC endpoint; exporter failure falls back to stdout |
 | `AGENT_RUN_TIMEOUT_MS` | integer | `7200000` | Per-task agent timeout |
 | `IDLE_TIMEOUT_MS` | integer | `1800000` | Idle shutdown window |

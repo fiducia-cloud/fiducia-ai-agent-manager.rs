@@ -1,5 +1,6 @@
-# GitHub automation
+# .github
 
-CI and dependency automation for the agent manager. Workflows validate the
-governed task lifecycle, shared message envelope, telemetry integration, and
-non-root reproducible build.
+GitHub Actions for `fiducia-ai-agent-manager.rs` — CI (fmt, clippy `-D warnings`, locked tests,
+`cargo audit`) plus the repo's deploy/docker/flags workflows where present.
+Workflow actions are pinned to full commit SHAs per the fleet's
+reproducible-build policy (audited by the monorepo's `audit-repo-state.sh`).
