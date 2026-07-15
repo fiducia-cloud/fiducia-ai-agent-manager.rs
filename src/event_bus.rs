@@ -517,4 +517,33 @@ mod tests {
         let detail = event_log_detail("error", &json!({ "message": message }));
         assert_eq!(detail.chars().filter(|ch| *ch == '😀').count(), 200);
     }
+
+    #[test]
+    fn circuit_opens_at_the_failure_threshold_and_recovers_after_the_window() {
+        let bus = bus();
+        for _ in 0..(CIRCUIT_FAILURE_THRESHOLD - 1) {
+            bus.record_failure();
+        }
+        assert!(bus.circuit_allows(), "one fewer failure must remain closed");
+
+        bus.record_failure();
+        assert!(!bus.circuit_allows(), "threshold opens the breaker");
+
+        bus.circuit.lock().last_fail_at = now_ms() - CIRCUIT_RESET_MS - 1;
+        assert!(bus.circuit_allows(), "elapsed reset window permits a probe");
+        assert_eq!(bus.circuit.lock().consecutive_failures, 0);
+    }
+
+    #[test]
+    fn recursive_sanitization_reaches_strings_nested_in_arrays_and_objects() {
+        let sanitized = sanitize_value(&json!({
+            "kind": "stderr",
+            "nested": [{ "lines": ["safe", "sk-ant-api03-SECRETKEY"] }]
+        }));
+        let encoded = serde_json::to_string(&sanitized).unwrap();
+
+        assert!(encoded.contains("[redacted-anthropic-key]"), "{encoded}");
+        assert!(!encoded.contains("sk-ant-"), "{encoded}");
+        assert!(encoded.contains("safe"));
+    }
 }
