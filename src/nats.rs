@@ -225,3 +225,70 @@ impl Nats {
         }
     }
 }
+
+#[cfg(test)]
+mod observability_tests {
+    use super::*;
+
+    fn bare(url: Option<&str>) -> Nats {
+        Nats {
+            url: url.map(String::from),
+            connection: Mutex::new(ConnectionState::default()),
+            connect_attempts: AtomicU64::new(0),
+            connect_failures: AtomicU64::new(0),
+            jetstream_published: AtomicU64::new(0),
+            core_published: AtomicU64::new(0),
+            publish_failures: AtomicU64::new(0),
+            serialization_failures: AtomicU64::new(0),
+            unconfigured_skips: AtomicU64::new(0),
+            unavailable_drops: AtomicU64::new(0),
+        }
+    }
+
+    fn envelope() -> MessageEnvelope<()> {
+        MessageEnvelope::new("execution.test", (), "idem-observability")
+    }
+
+    /// The two historically-silent loss paths must be COUNTED: publishing with
+    /// no NATS_URL is a deliberate no-op (unconfigured_skips), never a failure.
+    #[tokio::test]
+    async fn unconfigured_publishes_are_counted_as_skips() {
+        let nats = bare(None);
+        nats.publish_event("fiducia.executions.progress.v1", &envelope())
+            .await;
+        nats.publish_event("fiducia.executions.progress.v1", &envelope())
+            .await;
+
+        let snapshot = nats.snapshot();
+        assert!(!snapshot.configured);
+        assert_eq!(snapshot.unconfigured_skips, 2);
+        assert_eq!(snapshot.unavailable_drops, 0, "unconfigured is not an outage");
+        assert_eq!(snapshot.connect_attempts, 0, "no URL, no dialing");
+        assert!(nats
+            .metrics_text()
+            .contains("fiducia_agent_nats_unconfigured_skips_total 2\n"));
+    }
+
+    /// A CONFIGURED but unreachable broker is an outage: drops are counted as
+    /// unavailable (not skips), and reconnection attempts are gated to the
+    /// bounded cadence rather than dialing on every publish.
+    #[tokio::test]
+    async fn unreachable_broker_drops_are_counted_and_reconnects_are_gated() {
+        // Port 1 refuses connections immediately.
+        let nats = bare(Some("nats://127.0.0.1:1"));
+        nats.publish_event("fiducia.executions.progress.v1", &envelope())
+            .await;
+        nats.publish_event("fiducia.executions.progress.v1", &envelope())
+            .await;
+
+        let snapshot = nats.snapshot();
+        assert!(snapshot.configured);
+        assert_eq!(snapshot.unavailable_drops, 2, "both events dropped, visibly");
+        assert_eq!(snapshot.unconfigured_skips, 0);
+        assert_eq!(snapshot.connect_failures, snapshot.connect_attempts);
+        assert_eq!(
+            snapshot.connect_attempts, 1,
+            "the second publish inside the 5s gate must not re-dial"
+        );
+    }
+}
