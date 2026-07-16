@@ -511,6 +511,28 @@ mod tests {
         assert!(!text.contains("sk-ant-"));
     }
 
+    /// Replay history is bounded at REPLAY_CAP: a late subscriber sees exactly
+    /// the newest REPLAY_CAP events, with the oldest overflow dropped, so one
+    /// long-running task can never grow the buffer without bound.
+    #[tokio::test]
+    async fn replay_history_is_capped_and_drops_oldest_first() {
+        let bus = bus();
+        let overflow = 50i64;
+        let total = REPLAY_CAP as i64 + overflow;
+        for seq in 0..total {
+            ev(&bus, seq, "claude");
+        }
+
+        let (history, _rx, _) = bus.subscribe("t1", -1).unwrap();
+        assert_eq!(history.len(), REPLAY_CAP, "history bounded at REPLAY_CAP");
+        assert_eq!(
+            history.first().unwrap().seq,
+            overflow,
+            "the oldest {overflow} events were evicted"
+        );
+        assert_eq!(history.last().unwrap().seq, total - 1, "newest event kept");
+    }
+
     #[test]
     fn error_log_detail_clips_multibyte_text_on_character_boundaries() {
         let message = "😀".repeat(250);

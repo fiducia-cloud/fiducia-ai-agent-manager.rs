@@ -262,7 +262,35 @@ mod observability_tests {
         let snapshot = nats.snapshot();
         assert!(!snapshot.configured);
         assert_eq!(snapshot.unconfigured_skips, 2);
-        assert_eq!(snapshot.unavailable_drops, 0, "unconfigured is not an outage");
+        assert_eq!(
+            snapshot.unavailable_drops, 0,
+            "unconfigured is not an outage"
+        );
+        assert_eq!(snapshot.connect_attempts, 0, "no URL, no dialing");
+        assert!(nats
+            .metrics_text()
+            .contains("fiducia_agent_nats_unconfigured_skips_total 2\n"));
+    }
+
+    /// The live (Core NATS) path shares the same loss accounting as the
+    /// durable path: an unconfigured publisher counts unconfigured_skips —
+    /// never unavailable_drops — and dials nothing.
+    #[tokio::test]
+    async fn unconfigured_live_publishes_are_counted_as_skips() {
+        let nats = bare(None);
+        nats.publish_live("fiducia.executions.live.v1", b"progress")
+            .await;
+        nats.publish_live("fiducia.executions.live.v1", b"progress")
+            .await;
+
+        let snapshot = nats.snapshot();
+        assert!(!snapshot.configured);
+        assert_eq!(snapshot.unconfigured_skips, 2);
+        assert_eq!(
+            snapshot.unavailable_drops, 0,
+            "unconfigured is not an outage"
+        );
+        assert_eq!(snapshot.core_published, 0, "nothing was actually published");
         assert_eq!(snapshot.connect_attempts, 0, "no URL, no dialing");
         assert!(nats
             .metrics_text()
@@ -283,7 +311,10 @@ mod observability_tests {
 
         let snapshot = nats.snapshot();
         assert!(snapshot.configured);
-        assert_eq!(snapshot.unavailable_drops, 2, "both events dropped, visibly");
+        assert_eq!(
+            snapshot.unavailable_drops, 2,
+            "both events dropped, visibly"
+        );
         assert_eq!(snapshot.unconfigured_skips, 0);
         assert_eq!(snapshot.connect_failures, snapshot.connect_attempts);
         assert_eq!(
