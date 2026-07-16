@@ -71,6 +71,18 @@ aliases = ["nats-event-subject"]
 type = "string"
 help = "Subject execution-progress events publish to."
 
+[flags.nats-outbox-dir]
+env = "NATS_OUTBOX_DIR"
+aliases = ["nats-outbox-dir"]
+type = "string"
+help = "Durable lifecycle-event outbox directory."
+
+[flags.nats-outbox-max-attempts]
+env = "NATS_OUTBOX_MAX_ATTEMPTS"
+aliases = ["nats-outbox-max-attempts"]
+type = "integer"
+help = "Unacknowledged JetStream attempts before dead-letter quarantine."
+
 [flags.control-plane-url]
 env = "CONTROL_PLANE_URL"
 aliases = ["control-plane-url"]

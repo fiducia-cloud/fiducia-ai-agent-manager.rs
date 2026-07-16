@@ -35,6 +35,10 @@ pub struct Config {
     pub event_ingest_secret: Option<String>,
     pub nats_url: Option<String>,
     pub nats_event_subject: String,
+    /// Durable lifecycle events are persisted here before JetStream publish.
+    pub nats_outbox_dir: String,
+    /// Consecutive unacknowledged JetStream publishes before quarantine.
+    pub nats_outbox_max_attempts: u32,
     /// The fiducia-ai-agent-control-plane base URL. The worker registers here,
     /// claims work-items (fencing tokens), and reports transitions.
     pub control_plane_url: Option<String>,
@@ -115,6 +119,9 @@ impl Config {
             event_ingest_secret: env_opt("EVENT_INGEST_SECRET"),
             nats_url: env_opt("NATS_URL"),
             nats_event_subject: env_or("NATS_EVENT_SUBJECT", "fiducia.executions.progress.v1"),
+            nats_outbox_dir: env_opt("NATS_OUTBOX_DIR")
+                .unwrap_or_else(|| format!("{log_dir}/nats-outbox")),
+            nats_outbox_max_attempts: env_num("NATS_OUTBOX_MAX_ATTEMPTS", 100),
             control_plane_url: env_opt("CONTROL_PLANE_URL")
                 .or_else(|| env_opt("FIDUCIA_CONTROL_PLANE_URL")),
             fiducia_node_url: env_opt("FIDUCIA_NODE_URL"),

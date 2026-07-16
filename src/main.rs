@@ -33,6 +33,7 @@ async fn run() -> anyhow::Result<()> {
     );
 
     let nats = Arc::new(Nats::new(&config));
+    nats.start().await?;
     let mut control_plane = ControlPlane::new(
         config.control_plane_url.as_deref(),
         config.control_plane_secret.as_deref(),

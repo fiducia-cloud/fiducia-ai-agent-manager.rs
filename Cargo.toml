@@ -48,7 +48,7 @@ fiducia-interfaces = { path = "../fiducia-interfaces/generated/rust" }
 # Rust fiducia client (fiducia-node coordination — fencing-token verification).
 fiducia-client = { path = "../fiducia-clients/clients/rust" }
 # Shared message framing, JetStream deduplication, and telemetry setup. Keep
-# async-nats above for Core-NATS live progress and the durable-publish fallback.
+# async-nats above is retained for disposable Core-NATS live progress.
 fiducia-messaging = { path = "../fiducia-messaging.rs", features = ["nats"] }
 fiducia-telemetry = { path = "../fiducia-telemetry.rs" }
 

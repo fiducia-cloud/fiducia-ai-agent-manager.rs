@@ -86,6 +86,8 @@ Every knob is read once at boot from the environment (`src/config.rs`,
 | `IDLE_TIMEOUT_MS` | integer | `1800000` | Idle shutdown window |
 | `NATS_URL` | string | — | NATS server (live + durable events); initial failures retry every five seconds and are counted |
 | `NATS_EVENT_SUBJECT` | string | `fiducia.executions.progress.v1` | Progress event subject |
+| `NATS_OUTBOX_DIR` | path | `${LOG_DIR}/nats-outbox` | Persist-before-publish lifecycle outbox; startup fails if a configured worker cannot open it |
+| `NATS_OUTBOX_MAX_ATTEMPTS` | integer | `100` | Unacknowledged JetStream attempts before an event moves to the queryable dead-letter directory |
 | `CONTROL_PLANE_URL` / `FIDUCIA_CONTROL_PLANE_URL` | string | — | Control-plane base URL |
 | `FIDUCIA_NODE_URL` | string | — | fiducia-node for exact work-election renewal; required with `CONTROL_PLANE_URL` |
 | `FIDUCIA_NODE_INTERNAL_SECRET` / `FIDUCIA_INTERNAL_SECRET` | string (**secret; env-only**) | — | `x-fiducia-internal-auth` for the trusted node hop; required with `CONTROL_PLANE_URL` |
@@ -167,9 +169,11 @@ reviewed dependency change.
   unclaimed merge-upstream, manual push, and PR routes are all disabled in
   governed mode.
 - **Visible delivery degradation:** lifecycle events use the standard envelope
-  and tenant-scoped JetStream dedup header. Failed JetStream publishes fall back
-  to Core NATS, and final failures, reconnect attempts, ingest exhaustion, and
-  log-sink errors are logged and exposed at `/metrics`; none grant authority.
+  and tenant-scoped JetStream dedup header. They are persisted before publish,
+  removed only after an ACK, retried after restart with the same dedup ID, and
+  quarantined after bounded failures. Core NATS remains limited to disposable
+  live progress. Outbox, reconnect, ingest, and log-sink failures are exposed at
+  `/metrics`; none grant authority.
 
 ## Scope note
 
