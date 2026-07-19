@@ -12,10 +12,10 @@ allow_unknown = false
 unknown_options_env = "FLAGS2ENV_UNKNOWN_OPTIONS"
 errors_env = "FLAGS2ENV_PARSE_ERRORS"
 
-# Credentials and URLs that may embed credentials stay environment-only so
-# they never appear in argv, process listings, shell history, or help output.
+# Credentials, URLs that may embed credentials, and the ungoverned local-only
+# escape hatch stay environment-only so they are not casual command-line flags.
 [env]
-ignore = ["FIDUCIA_REPO_URL", "DD_REPO_URL", "NATS_URL", "EVENT_INGEST_URL", "SERVER_AUTH_SECRET", "FIDUCIA_CONTROL_PLANE_SECRET", "FIDUCIA_INTERNAL_SECRET", "FIDUCIA_NODE_INTERNAL_SECRET", "EVENT_INGEST_SECRET", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENCODE_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "GH_PAT", "GH_DEPLOY_KEY"]
+ignore = ["FIDUCIA_REPO_URL", "DD_REPO_URL", "NATS_URL", "EVENT_INGEST_URL", "SERVER_AUTH_SECRET", "FIDUCIA_CONTROL_PLANE_SECRET", "FIDUCIA_INTERNAL_SECRET", "FIDUCIA_NODE_INTERNAL_SECRET", "FIDUCIA_UNGOVERNED_LOCAL_ONLY", "EVENT_INGEST_SECRET", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENCODE_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "GH_PAT", "GH_DEPLOY_KEY"]
 
 [flags.host]
 env = "HOST"

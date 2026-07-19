@@ -4,7 +4,11 @@
 # command. Used to invoke the fiducia-ai-agent-manager binary.
 set -euo pipefail
 
-root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+root="$(
+  unset CDPATH
+  cd -- "$(dirname -- "$0")/.."
+  pwd
+)"
 flags=()
 while (($#)) && [[ "$1" != "--" ]]; do
   flags+=("$1")

@@ -27,29 +27,52 @@ jobs:
         uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: repo/.github/workflows/ci.yml repo/.github/workflows/cli-flags.yml
+      - name: Verify CI, container, and documentation pins agree
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_ref() {
+            awk -v repository="$1" '
+              $1 == "repository:" && $2 == repository { found = 1; next }
+              found && $1 == "ref:" { print $2; exit }
+            ' repo/.github/workflows/ci.yml
+          }
+          verify_pin() {
+            local repository="$1" docker_arg="$2"
+            local workflow docker
+            workflow="$(workflow_ref "$repository")"
+            docker="$(sed -n "s/^ARG ${docker_arg}=//p" repo/Dockerfile)"
+            test -n "$workflow"
+            test "$workflow" = "$docker"
+            grep -Fq "\`$workflow\`" repo/README.md
+          }
+          verify_pin fiducia-cloud/fiducia-interfaces INTERFACES_REF
+          verify_pin fiducia-cloud/fiducia-clients CLIENTS_REF
+          verify_pin fiducia-cloud/fiducia-messaging.rs MESSAGING_REF
+          verify_pin fiducia-cloud/fiducia-telemetry.rs TELEMETRY_REF
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           repository: fiducia-cloud/fiducia-interfaces
-          ref: 3072e824e4e10f4a392a5851ea155ab5693ff206
+          ref: 6e20a3f4df2e52b99a0ad6add83d4528262b5dbc
           path: fiducia-interfaces
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           repository: fiducia-cloud/fiducia-clients
-          ref: 1446b254b4bfd57b2df75c3c451a663313f19eb9
+          ref: 5695b16a1577aadbfe414123927e45927f88a7f0
           path: fiducia-clients
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           repository: fiducia-cloud/fiducia-messaging.rs
-          ref: cec4ea4f54162758858c6c284324c34a42f3f3d7
+          ref: d49c5adf15e17fd2d536f3c9f33e8c4646298b43
           path: fiducia-messaging.rs
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           repository: fiducia-cloud/fiducia-telemetry.rs
-          ref: 724844e62ba35f409917d72343e7804c199878a9
+          ref: 20ed56d9e725c9189deb7386a2dee91ea8b25fdb
           path: fiducia-telemetry.rs
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:

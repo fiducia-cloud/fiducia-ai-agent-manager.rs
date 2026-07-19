@@ -19,7 +19,10 @@ lifecycle: deterministic edits, provider execution, commit, push, artifact
 publication, and the final state transition. It also renews immediately before
 push. Direct node calls carry both internal authentication and the same org scope
 used by the control plane. A refusal, outage, malformed response, or stale token
-fails closed.
+fails closed. Startup also fails closed when `CONTROL_PLANE_URL` is omitted.
+The sole exception is the explicit `FIDUCIA_UNGOVERNED_LOCAL_ONLY=true`
+local/test mode, which additionally requires a loopback HTTP bind and is exposed
+as a warning in logs and `/status`.
 
 | Concern | Mechanism |
 | --- | --- |
@@ -40,9 +43,9 @@ All routes except `/healthz` / `/status` / `/agents` / `/metrics` require
 | POST | `/tasks` | Queue a task `{ prompt, taskId?, threadId?, provider? }` |
 | GET | `/stream/{taskId}` | Server-Sent Events of agent activity (resumable) |
 | POST | `/tasks/{taskId}/cancel` | Cancel an in-flight task |
-| POST | `/thread/merge-upstream` | Merge base into the thread branch (standalone mode only) |
-| POST | `/thread/make-commit` | Commit + push the workspace (standalone mode only) |
-| POST | `/thread/open-pr` | Open/reuse a draft PR (`gh`; standalone mode only) |
+| POST | `/thread/merge-upstream` | Merge base into the thread branch (explicit ungoverned local/test mode only) |
+| POST | `/thread/make-commit` | Commit + push the workspace (explicit ungoverned local/test mode only) |
+| POST | `/thread/open-pr` | Open/reuse a draft PR (`gh`; explicit ungoverned local/test mode only) |
 | GET | `/tasks` | List tasks |
 | GET | `/healthz`, `/status`, `/agents`, `/metrics` | Ops surfaces |
 
@@ -61,6 +64,18 @@ PORT=8080 SERVER_AUTH_SECRET=… NATS_URL=nats://… \
   WORKSPACE_REPO=/home/node/workspace/repo BASE_BRANCH=dev \
   ./target/release/fiducia-ai-agent-manager
 ```
+
+An ungoverned worker is never selected implicitly by omitting a URL. For an
+isolated local/test run only, opt in and keep the server loopback-bound:
+
+```sh
+HOST=127.0.0.1 FIDUCIA_UNGOVERNED_LOCAL_ONLY=true \
+  WORKSPACE_REPO="$PWD/test-workspace" \
+  ./target/release/fiducia-ai-agent-manager
+```
+
+This mode permits unclaimed task, merge, commit, push, and PR mutations. Do not
+set it in a container, cluster, shared host, or remotely reachable process.
 
 ## Configuration
 
@@ -88,7 +103,8 @@ Every knob is read once at boot from the environment (`src/config.rs`,
 | `NATS_EVENT_SUBJECT` | string | `fiducia.executions.progress.v1` | Progress event subject |
 | `NATS_OUTBOX_DIR` | path | `${LOG_DIR}/nats-outbox` | Persist-before-publish lifecycle outbox; startup fails if a configured worker cannot open it |
 | `NATS_OUTBOX_MAX_ATTEMPTS` | integer | `100` | Unacknowledged JetStream attempts before an event moves to the queryable dead-letter directory |
-| `CONTROL_PLANE_URL` / `FIDUCIA_CONTROL_PLANE_URL` | string | — | Control-plane base URL |
+| `CONTROL_PLANE_URL` / `FIDUCIA_CONTROL_PLANE_URL` | string | required | Control-plane base URL; omission fails startup unless the local/test-only escape hatch below is active |
+| `FIDUCIA_UNGOVERNED_LOCAL_ONLY` | boolean | `false` | Explicitly allow ungoverned local/test execution; accepted only as exactly `true`, with no control-plane URL, and when `HOST` is loopback |
 | `FIDUCIA_NODE_URL` | string | — | fiducia-node for exact work-election renewal; required with `CONTROL_PLANE_URL` |
 | `FIDUCIA_NODE_INTERNAL_SECRET` / `FIDUCIA_INTERNAL_SECRET` | string (**secret; env-only**) | — | `x-fiducia-internal-auth` for the trusted node hop; required with `CONTROL_PLANE_URL` |
 | `FIDUCIA_NODE_ORG_ID` | string | `fiducia-ai-control-plane` | Stable `x-fiducia-org-id` scope shared with the control plane |
@@ -120,15 +136,17 @@ scripts/with-flags2env.sh --port 8080 --log-format json -- \
 `--fiducia-node-org-id` configures the non-secret org scope. Control-plane and
 node internal secrets are listed under `.cli-flags.toml`'s `[env].ignore` and
 must be injected as environment variables by a secret manager; they are never
-accepted on argv.
+accepted on argv. The security-sensitive `FIDUCIA_UNGOVERNED_LOCAL_ONLY`
+escape hatch is environment-only for the same reason.
 
 ### Reproducible cross-repository inputs
 
 CI and the Docker build use `fiducia-interfaces` commit
-`487e470c45ab5851e8f6f3b1dc048fe067fbf408`, `fiducia-clients` commit
-`bcf2f868697a96d82151c0e4bf0efae258b234e9`, `fiducia-messaging.rs` commit
-`416df78b2ca6132990150572933f3908728b2aab`, and `fiducia-telemetry.rs` commit
-`b5663ee10367b5dfeac74d44922615226c75b7b2`. The Dockerfile fetches each full
+`6e20a3f4df2e52b99a0ad6add83d4528262b5dbc`, `fiducia-clients` commit
+`5695b16a1577aadbfe414123927e45927f88a7f0`, `fiducia-messaging.rs` commit
+`d49c5adf15e17fd2d536f3c9f33e8c4646298b43`, and `fiducia-telemetry.rs` commit
+`20ed56d9e725c9189deb7386a2dee91ea8b25fdb`. CI verifies that these checkout
+refs, the Docker build arguments, and this documentation agree. The Dockerfile fetches each full
 object id, checks it out detached, verifies `HEAD`, and then builds with
 `cargo --locked`; CI checks out the same refs and pins every action and tool
 version. Update the Docker arguments and workflow refs together when adopting a
@@ -160,7 +178,9 @@ reviewed dependency change.
   renews its exact `ai-work:<id>` election every 10 seconds from its first edit
   through provider, commit, push, artifacts, and the final transition, plus an
   exact renewal immediately before push. Any refusal or malformed
-  candidate/token response fails closed.
+  candidate/token response fails closed. A missing control-plane URL also fails
+  startup unless the explicit local/test-only escape hatch is enabled on a
+  loopback bind; that mode is loudly identified in startup logs and `/status`.
 - **Cancellation and durable lifecycle:** cancellation is checked before each
   filesystem, Git, push, and artifact mutation. Git children use
   `kill_on_drop`, are explicitly killed, and are awaited on cancellation or

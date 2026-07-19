@@ -8,25 +8,31 @@ use fiducia_ai_agent_manager::nats::Nats;
 use fiducia_ai_agent_manager::state::AppState;
 use fiducia_ai_agent_manager::storage::LocalStorage;
 use parking_lot::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    fiducia_telemetry::init("fiducia-ai-agent-manager");
-    let result = run().await;
-    fiducia_telemetry::shutdown();
-    result
+    let _telemetry = fiducia_telemetry::init("fiducia-ai-agent-manager");
+    run().await
 }
 
 async fn run() -> anyhow::Result<()> {
     let config = Config::from_env();
+    let governance_mode = config.governance_mode().map_err(anyhow::Error::msg)?;
+    if governance_mode == fiducia_ai_agent_manager::config::GovernanceMode::UngovernedLocalOnly {
+        warn!(
+            governance_mode = governance_mode.as_str(),
+            bind = %config.host,
+            "UNSAFE LOCAL/TEST MODE: control-plane claims and fencing are disabled; unclaimed task and thread mutations are allowed"
+        );
+    }
     let instance_id = uuid::Uuid::new_v4().to_string();
     info!(
         host = %config.host,
         port = config.port,
         thread_id = ?config.thread_id,
         repo = ?config.repo_url,
-        control_plane = config.control_plane_url.is_some(),
+        governance_mode = governance_mode.as_str(),
         nats = config.nats_url.is_some(),
         %instance_id,
         "starting fiducia-ai-agent-manager"
@@ -35,6 +41,7 @@ async fn run() -> anyhow::Result<()> {
     let nats = Arc::new(Nats::new(&config));
     nats.start().await?;
     let mut control_plane = ControlPlane::new(
+        governance_mode,
         config.control_plane_url.as_deref(),
         config.control_plane_secret.as_deref(),
         config.fiducia_node_url.as_deref(),

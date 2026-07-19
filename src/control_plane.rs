@@ -19,6 +19,8 @@ use std::{sync::Arc, time::Duration};
 use fiducia_client::FiduciaClient;
 use serde_json::{json, Value};
 
+use crate::config::GovernanceMode;
+
 const CONTROL_PLANE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTROL_PLANE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const NODE_FENCING_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -102,6 +104,7 @@ pub struct WorkClaim {
 
 #[derive(Clone)]
 pub struct ControlPlane {
+    governance_mode: GovernanceMode,
     base: Option<String>,
     http: reqwest::Client,
     /// Shared secret presented as `x-internal-auth` on control-plane mutations.
@@ -117,6 +120,7 @@ pub struct ControlPlane {
 
 impl ControlPlane {
     pub fn new(
+        governance_mode: GovernanceMode,
         base_url: Option<&str>,
         internal_secret: Option<&str>,
         node_url: Option<&str>,
@@ -130,7 +134,19 @@ impl ControlPlane {
         let node_internal_secret = normalized(node_internal_secret);
         let node_org_id = node_org_id.trim();
 
-        if base_url.is_some() {
+        match (governance_mode, base_url) {
+            (GovernanceMode::Governed, None) => {
+                return Err("CONTROL_PLANE_URL is required in governed mode".to_string())
+            }
+            (GovernanceMode::UngovernedLocalOnly, Some(_)) => {
+                return Err(
+                    "CONTROL_PLANE_URL must be unset in ungoverned-local-only mode".to_string(),
+                )
+            }
+            _ => {}
+        }
+
+        if governance_mode == GovernanceMode::Governed {
             if internal_secret.is_none() {
                 return Err(
                     "FIDUCIA_CONTROL_PLANE_SECRET or FIDUCIA_INTERNAL_SECRET is required when control-plane governance is enabled"
@@ -159,6 +175,7 @@ impl ControlPlane {
         }
         let instance_id = agent_id.into();
         Ok(ControlPlane {
+            governance_mode,
             base: base_url.map(|b| b.trim_end_matches('/').to_string()),
             // Bound every control-plane call: `claim_work` is awaited inline in
             // the task path (while the session queue is held), so a hung control
@@ -181,7 +198,11 @@ impl ControlPlane {
     }
 
     pub fn enabled(&self) -> bool {
-        self.base.is_some()
+        self.governance_mode == GovernanceMode::Governed
+    }
+
+    pub fn governance_mode(&self) -> GovernanceMode {
+        self.governance_mode
     }
 
     pub fn agent_id(&self) -> Option<&str> {
@@ -343,8 +364,47 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
+    fn authority_mode_cannot_be_inferred_from_a_missing_url() {
+        assert!(ControlPlane::new(
+            GovernanceMode::Governed,
+            None,
+            None,
+            None,
+            None,
+            "fiducia-ai-control-plane",
+            "agent-1",
+        )
+        .is_err());
+
+        let local = ControlPlane::new(
+            GovernanceMode::UngovernedLocalOnly,
+            None,
+            None,
+            None,
+            None,
+            "fiducia-ai-control-plane",
+            "agent-1",
+        )
+        .unwrap();
+        assert!(!local.enabled());
+        assert_eq!(local.governance_mode(), GovernanceMode::UngovernedLocalOnly);
+
+        assert!(ControlPlane::new(
+            GovernanceMode::UngovernedLocalOnly,
+            Some("http://cp.invalid"),
+            Some("cp-secret"),
+            Some("http://node.invalid"),
+            Some("node-secret"),
+            "fiducia-ai-control-plane",
+            "agent-1",
+        )
+        .is_err());
+    }
+
+    #[test]
     fn governed_mode_requires_direct_node_authority() {
         assert!(ControlPlane::new(
+            GovernanceMode::Governed,
             Some("http://cp.invalid"),
             Some("cp-secret"),
             None,
@@ -354,6 +414,7 @@ mod tests {
         )
         .is_err());
         assert!(ControlPlane::new(
+            GovernanceMode::Governed,
             Some("http://cp.invalid"),
             Some("cp-secret"),
             Some("http://node.invalid"),
@@ -363,6 +424,7 @@ mod tests {
         )
         .is_err());
         assert!(ControlPlane::new(
+            GovernanceMode::Governed,
             Some("http://cp.invalid"),
             None,
             Some("http://node.invalid"),
@@ -378,6 +440,7 @@ mod tests {
         // Node configured but unreachable (connection refused) → transport error
         // → must fail CLOSED so a stale worker cannot push during an outage.
         let mut cp = ControlPlane::new(
+            GovernanceMode::Governed,
             Some("http://cp.invalid"),
             Some("cp-secret"),
             Some("http://127.0.0.1:9"),
@@ -399,6 +462,7 @@ mod tests {
     #[test]
     fn direct_node_client_has_a_request_deadline() {
         let cp = ControlPlane::new(
+            GovernanceMode::Governed,
             Some("http://cp.invalid"),
             Some("cp-secret"),
             Some("http://node.invalid"),
@@ -446,6 +510,7 @@ mod tests {
         });
 
         let mut cp = ControlPlane::new(
+            GovernanceMode::Governed,
             Some("http://cp.invalid"),
             Some("cp-secret"),
             Some(&format!("http://{address}")),
@@ -475,6 +540,7 @@ mod tests {
     fn governed_mode_rejects_invalid_node_scope() {
         let build = |org| {
             ControlPlane::new(
+                GovernanceMode::Governed,
                 Some("http://cp.invalid"),
                 Some("cp-secret"),
                 Some("http://node.invalid"),

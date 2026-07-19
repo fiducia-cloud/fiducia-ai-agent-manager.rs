@@ -8,6 +8,24 @@ use std::time::Duration;
 use crate::agents::AgentProvider;
 
 pub const DEFAULT_FIDUCIA_NODE_ORG_ID: &str = "fiducia-ai-control-plane";
+pub const UNGOVERNED_LOCAL_ONLY_ENV: &str = "FIDUCIA_UNGOVERNED_LOCAL_ONLY";
+
+/// Whether this worker is governed by the control plane or is running under
+/// the deliberately narrow local/test escape hatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GovernanceMode {
+    Governed,
+    UngovernedLocalOnly,
+}
+
+impl GovernanceMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Governed => "governed",
+            Self::UngovernedLocalOnly => "ungoverned-local-only",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -42,6 +60,9 @@ pub struct Config {
     /// The fiducia-ai-agent-control-plane base URL. The worker registers here,
     /// claims work-items (fencing tokens), and reports transitions.
     pub control_plane_url: Option<String>,
+    /// Explicit local/test-only escape hatch for running without the control
+    /// plane. It is accepted only with a loopback HTTP bind.
+    pub ungoverned_local_only: bool,
     /// fiducia-node URL for exact work-election renewal; required in governed
     /// mode.
     pub fiducia_node_url: Option<String>,
@@ -124,6 +145,7 @@ impl Config {
             nats_outbox_max_attempts: env_num("NATS_OUTBOX_MAX_ATTEMPTS", 100),
             control_plane_url: env_opt("CONTROL_PLANE_URL")
                 .or_else(|| env_opt("FIDUCIA_CONTROL_PLANE_URL")),
+            ungoverned_local_only: env_opt(UNGOVERNED_LOCAL_ONLY_ENV).as_deref() == Some("true"),
             fiducia_node_url: env_opt("FIDUCIA_NODE_URL"),
             fiducia_node_internal_secret: env_opt("FIDUCIA_NODE_INTERNAL_SECRET")
                 .or_else(|| env_opt("FIDUCIA_INTERNAL_SECRET")),
@@ -139,11 +161,42 @@ impl Config {
             skip_boot_git_sync: env_opt("SKIP_BOOT_GIT_SYNC").as_deref() == Some("true"),
         }
     }
+
+    /// Resolve and validate the startup authority policy. Missing governance is
+    /// never inferred from a missing URL: it must be explicitly requested for
+    /// local/test use and cannot bind a remotely reachable address.
+    pub fn governance_mode(&self) -> Result<GovernanceMode, String> {
+        resolve_governance_mode(
+            self.control_plane_url.as_deref(),
+            self.ungoverned_local_only,
+            self.host,
+        )
+    }
+}
+
+fn resolve_governance_mode(
+    control_plane_url: Option<&str>,
+    ungoverned_local_only: bool,
+    host: IpAddr,
+) -> Result<GovernanceMode, String> {
+    match (control_plane_url, ungoverned_local_only) {
+        (Some(_), false) => Ok(GovernanceMode::Governed),
+        (Some(_), true) => Err(format!(
+            "{UNGOVERNED_LOCAL_ONLY_ENV} must be unset when CONTROL_PLANE_URL is configured"
+        )),
+        (None, true) if host.is_loopback() => Ok(GovernanceMode::UngovernedLocalOnly),
+        (None, true) => Err(format!(
+            "{UNGOVERNED_LOCAL_ONLY_ENV}=true is restricted to local/test use and requires HOST to be a loopback address"
+        )),
+        (None, false) => Err(format!(
+            "CONTROL_PLANE_URL is required; for explicit local/test use only, bind HOST to a loopback address and set {UNGOVERNED_LOCAL_ONLY_ENV}=true"
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized, DEFAULT_FIDUCIA_NODE_ORG_ID};
+    use super::{normalized, resolve_governance_mode, GovernanceMode, DEFAULT_FIDUCIA_NODE_ORG_ID};
 
     #[test]
     fn secret_values_are_trimmed_and_blank_values_are_absent() {
@@ -158,5 +211,30 @@ mod tests {
     #[test]
     fn node_scope_default_matches_the_control_plane() {
         assert_eq!(DEFAULT_FIDUCIA_NODE_ORG_ID, "fiducia-ai-control-plane");
+    }
+
+    #[test]
+    fn startup_requires_governance_by_default() {
+        let loopback = "127.0.0.1".parse().unwrap();
+        assert!(resolve_governance_mode(None, false, loopback).is_err());
+        assert_eq!(
+            resolve_governance_mode(Some("http://control-plane"), false, loopback).unwrap(),
+            GovernanceMode::Governed
+        );
+    }
+
+    #[test]
+    fn ungoverned_escape_is_explicit_and_loopback_only() {
+        assert_eq!(
+            resolve_governance_mode(None, true, "127.0.0.1".parse().unwrap()).unwrap(),
+            GovernanceMode::UngovernedLocalOnly
+        );
+        assert!(resolve_governance_mode(None, true, "0.0.0.0".parse().unwrap()).is_err());
+        assert!(resolve_governance_mode(
+            Some("http://control-plane"),
+            true,
+            "127.0.0.1".parse().unwrap()
+        )
+        .is_err());
     }
 }

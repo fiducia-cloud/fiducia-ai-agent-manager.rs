@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::resolve_agent_provider;
+use crate::config::GovernanceMode;
 use crate::orchestrator;
 use crate::state::{AppState, TaskState};
 use crate::thread_ops;
@@ -76,6 +77,7 @@ async fn healthz() -> impl IntoResponse {
 }
 
 async fn status(State(st): State<AppState>) -> impl IntoResponse {
+    let governance_mode = st.control_plane.governance_mode();
     Json(json!({
         "ok": true,
         "service": "fiducia-ai-agent-manager",
@@ -85,6 +87,9 @@ async fn status(State(st): State<AppState>) -> impl IntoResponse {
         "repo": st.config.repo_url,
         "baseBranch": st.config.base_branch,
         "controlPlane": st.control_plane.enabled(),
+        "governanceMode": governance_mode.as_str(),
+        "governanceWarning": (governance_mode == GovernanceMode::UngovernedLocalOnly)
+            .then_some("UNSAFE LOCAL/TEST MODE: control-plane claims and fencing are disabled"),
         "natsConfigured": st.config.nats_url.is_some(),
         "nats": st.nats.snapshot(),
         "activeTasks": st.tasks.lock().len(),
@@ -427,12 +432,12 @@ fn resolved_branch(st: &AppState, body: &ThreadControlBody) -> Result<String, Re
         .into_response())
 }
 
-fn manual_external_mutation_allowed(control_plane_enabled: bool) -> bool {
-    !control_plane_enabled
+fn manual_external_mutation_allowed(governance_mode: GovernanceMode) -> bool {
+    governance_mode == GovernanceMode::UngovernedLocalOnly
 }
 
 fn reject_unclaimed_external_mutation(st: &AppState) -> Option<Response> {
-    if manual_external_mutation_allowed(st.control_plane.enabled()) {
+    if manual_external_mutation_allowed(st.control_plane.governance_mode()) {
         return None;
     }
     Some(
@@ -513,11 +518,15 @@ async fn open_pr(
 
 #[cfg(test)]
 mod governance_tests {
+    use crate::config::GovernanceMode;
+
     use super::manual_external_mutation_allowed;
 
     #[test]
     fn governed_manual_thread_mutations_fail_closed() {
-        assert!(!manual_external_mutation_allowed(true));
-        assert!(manual_external_mutation_allowed(false));
+        assert!(!manual_external_mutation_allowed(GovernanceMode::Governed));
+        assert!(manual_external_mutation_allowed(
+            GovernanceMode::UngovernedLocalOnly
+        ));
     }
 }
