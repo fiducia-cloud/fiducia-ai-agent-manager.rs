@@ -6,7 +6,7 @@ RUN apt-get update \
 WORKDIR /workspace
 ARG INTERFACES_REF=6e20a3f4df2e52b99a0ad6add83d4528262b5dbc
 ARG CLIENTS_REF=5695b16a1577aadbfe414123927e45927f88a7f0
-ARG MESSAGING_REF=d49c5adf15e17fd2d536f3c9f33e8c4646298b43
+ARG MESSAGING_REF=cec4ea4f54162758858c6c284324c34a42f3f3d7
 ARG TELEMETRY_REF=20ed56d9e725c9189deb7386a2dee91ea8b25fdb
 RUN git init fiducia-interfaces \
     && git -C fiducia-interfaces remote add origin https://github.com/fiducia-cloud/fiducia-interfaces.git \

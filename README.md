@@ -144,7 +144,7 @@ escape hatch is environment-only for the same reason.
 CI and the Docker build use `fiducia-interfaces` commit
 `6e20a3f4df2e52b99a0ad6add83d4528262b5dbc`, `fiducia-clients` commit
 `5695b16a1577aadbfe414123927e45927f88a7f0`, `fiducia-messaging.rs` commit
-`d49c5adf15e17fd2d536f3c9f33e8c4646298b43`, and `fiducia-telemetry.rs` commit
+`cec4ea4f54162758858c6c284324c34a42f3f3d7`, and `fiducia-telemetry.rs` commit
 `20ed56d9e725c9189deb7386a2dee91ea8b25fdb`. CI verifies that these checkout
 refs, the Docker build arguments, and this documentation agree. The Dockerfile fetches each full
 object id, checks it out detached, verifies `HEAD`, and then builds with
