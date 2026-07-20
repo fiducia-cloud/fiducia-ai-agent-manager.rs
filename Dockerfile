@@ -35,7 +35,7 @@ RUN cargo build --release --locked --manifest-path fiducia-ai-agent-manager.rs/C
 # base keeps Git/SSH/gh + certs. Layer your agent toolchain on top. This is an
 # explicit tooling-runtime exception to the otherwise-distroless service policy: the
 # worker must spawn Git and provider CLIs, but it still runs without root.
-FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
 LABEL org.fiducia.runtime-profile="tool-runner-nonroot"
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates gh git openssh-client \
