@@ -19,3 +19,6 @@ Thumbs.db
 *~
 .direnv/
 target/
+
+# direnv-generated Nix dev-shell cache
+.direnv/
