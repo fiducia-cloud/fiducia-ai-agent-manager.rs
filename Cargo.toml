@@ -39,8 +39,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 parking_lot = "0.12"
 regex = "1"
-# NATS message bus (live progress + durable execution events).
-async-nats = { version = "0.50.0", default-features = false, features = ["jetstream", "ring"] }
+# NATS message bus (live progress + durable execution events). `nkeys` enables
+# `NATS_CREDS_FILE` credentials so secrets do not ride the URL userinfo.
+async-nats = { version = "0.50.0", default-features = false, features = ["jetstream", "ring", "nkeys"] }
 bytes = "1"
 
 # Shared, generated payload/error contract.
