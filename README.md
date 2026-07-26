@@ -142,10 +142,10 @@ escape hatch is environment-only for the same reason.
 ### Reproducible cross-repository inputs
 
 CI and the Docker build use `fiducia-interfaces` commit
-`6e20a3f4df2e52b99a0ad6add83d4528262b5dbc`, `fiducia-clients` commit
-`5695b16a1577aadbfe414123927e45927f88a7f0`, `fiducia-messaging.rs` commit
-`cec4ea4f54162758858c6c284324c34a42f3f3d7`, and `fiducia-telemetry.rs` commit
-`20ed56d9e725c9189deb7386a2dee91ea8b25fdb`. CI verifies that these checkout
+`2c5c806174e067fbe83ad48b724366323ba390a2`, `fiducia-clients` commit
+`5cd1a537f7ab98808ece4cdd09723be0bf49ce8b`, `fiducia-messaging.rs` commit
+`d3e88b3692bfdb4d387a9aa70fb7af5ecf200c49`, and `fiducia-telemetry.rs` commit
+`1128b3f9ab4fb003e918f61ab7743fd5c6c62fc9`. CI verifies that these checkout
 refs, the Docker build arguments, and this documentation agree. The Dockerfile fetches each full
 object id, checks it out detached, verifies `HEAD`, and then builds with
 `cargo --locked`; CI checks out the same refs and pins every action and tool
