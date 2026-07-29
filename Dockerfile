@@ -4,7 +4,7 @@ FROM rust:1.97.1-bookworm@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952eb
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates
 WORKDIR /workspace
-ARG INTERFACES_REF=2c5c806174e067fbe83ad48b724366323ba390a2
+ARG INTERFACES_REF=bd718cd72d72aa330534f3688f8fb1ce90c19d10
 ARG CLIENTS_REF=5cd1a537f7ab98808ece4cdd09723be0bf49ce8b
 ARG MESSAGING_REF=d3e88b3692bfdb4d387a9aa70fb7af5ecf200c49
 ARG TELEMETRY_REF=1128b3f9ab4fb003e918f61ab7743fd5c6c62fc9

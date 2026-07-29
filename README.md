@@ -142,7 +142,7 @@ escape hatch is environment-only for the same reason.
 ### Reproducible cross-repository inputs
 
 CI and the Docker build use `fiducia-interfaces` commit
-`2c5c806174e067fbe83ad48b724366323ba390a2`, `fiducia-clients` commit
+`bd718cd72d72aa330534f3688f8fb1ce90c19d10`, `fiducia-clients` commit
 `5cd1a537f7ab98808ece4cdd09723be0bf49ce8b`, `fiducia-messaging.rs` commit
 `d3e88b3692bfdb4d387a9aa70fb7af5ecf200c49`, and `fiducia-telemetry.rs` commit
 `1128b3f9ab4fb003e918f61ab7743fd5c6c62fc9`. CI verifies that these checkout
