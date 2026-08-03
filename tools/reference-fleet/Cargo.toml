@@ -1,0 +1,17 @@
+[package]
+name = "fiducia-reference-fleet"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Deterministic reference harness for Fiducia AI-agent fleet coordination semantics"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fiducia-reference-fleet"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
