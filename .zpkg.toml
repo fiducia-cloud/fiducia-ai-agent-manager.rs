@@ -1,0 +1,30 @@
+[package]
+org = "fiducia"
+name = "fiducia-ai-agent-manager"
+version = "0.1.0"
+description = "Private warm-workspace AI-agent worker, event stream, and control-plane integration source package"
+license = "MIT"
+keywords = ["agents", "workers", "git", "nats", "source-package"]
+
+[package.repository]
+vcs = "git"
+url = "https://github.com/fiducia-cloud/fiducia-ai-agent-manager.rs"
+
+[dependencies]
+"fiducia/fiducia-interfaces" = "^0.1.0"
+"fiducia/fiducia-clients" = "^0.1.0"
+"fiducia/fiducia-messaging" = "^0.1.0"
+"fiducia/fiducia-telemetry" = "^0.2.1"
+
+[publish]
+include_readme = true
+tag_format = "v{version}"
+smoke_test = "test -f \"$ZED_PKG_TEST_TARGET/Cargo.toml\" && test -f \"$ZED_PKG_TEST_TARGET/src/main.rs\" && test -f \"$ZED_PKG_TEST_TARGET/src/lib.rs\""
+exclude = [".env", ".env.*", ".direnv/**", ".zed/**", ".zed-pack/**", "target/**", "tmp/**", "**/*.log", ".DS_Store"]
+
+# Cargo still names the messaging and telemetry siblings with `.rs` suffixes.
+# Valid Zed package slugs cannot reproduce those directories. This release pins
+# every dependency and versions the worker source, but does not claim a runnable
+# Rust/global artifact until the Cargo paths move to package/git dependencies.
+[install]
+adapter = "none"
