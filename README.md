@@ -65,6 +65,24 @@ PORT=8080 SERVER_AUTH_SECRET=… NATS_URL=nats://… \
   ./target/release/fiducia-ai-agent-manager
 ```
 
+## Reference fleet coordination demo
+
+The zero-credential [`tools/reference-fleet`](tools/reference-fleet) harness is
+the executable companion to Linear `DEN-868`. It deterministically proves task
+claim races, lease renewal and loss, fencing-token commit checks, supervisor
+failover, shared semaphores and quotas, heartbeat expiry, replicated-cron
+deduplication, KV/CAS watches, and side-effect idempotency:
+
+```sh
+cargo test --manifest-path tools/reference-fleet/Cargo.toml --locked
+cargo run --manifest-path tools/reference-fleet/Cargo.toml --locked
+```
+
+The harness models only the Fiducia coordination boundary. Postgres, queues,
+object stores, and vector databases retain durable task and transcript history;
+agent workers retain reasoning and tool execution. See the harness README for
+the explicit guarantees and non-guarantees.
+
 An ungoverned worker is never selected implicitly by omitting a URL. For an
 isolated local/test run only, opt in and keep the server loopback-bound:
 

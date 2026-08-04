@@ -93,6 +93,13 @@ jobs:
       - name: Test
         working-directory: repo
         run: cargo test --all-features --locked
+      - name: Reference fleet contract
+        working-directory: repo
+        run: |
+          cargo fmt --manifest-path tools/reference-fleet/Cargo.toml --all -- --check
+          cargo clippy --manifest-path tools/reference-fleet/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/reference-fleet/Cargo.toml --locked
+          cargo run --manifest-path tools/reference-fleet/Cargo.toml --locked
       - name: Release build
         working-directory: repo
         run: cargo build --release --locked
