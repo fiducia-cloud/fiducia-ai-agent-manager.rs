@@ -1,5 +1,5 @@
 [package]
-org = "fiducia"
+org = "fiducia-cloud"
 name = "fiducia-ai-agent-manager"
 version = "0.1.0"
 description = "Private warm-workspace AI-agent worker, event stream, and control-plane integration source package"
@@ -11,16 +11,16 @@ vcs = "git"
 url = "https://github.com/fiducia-cloud/fiducia-ai-agent-manager.rs"
 
 [dependencies]
-"fiducia/fiducia-interfaces" = "^0.1.0"
-"fiducia/fiducia-clients" = "^0.1.0"
-"fiducia/fiducia-messaging" = "^0.1.0"
-"fiducia/fiducia-telemetry" = "^0.2.1"
+"fiducia-cloud/fiducia-interfaces" = "^0.1.0"
+"fiducia-cloud/fiducia-clients" = "^0.1.0"
+"fiducia-cloud/fiducia-messaging" = "^0.1.0"
+"fiducia-cloud/fiducia-telemetry" = "^0.2.1"
 
 [publish]
 include_readme = true
 tag_format = "v{version}"
 smoke_test = "test -f \"$ZED_PKG_TEST_TARGET/Cargo.toml\" && test -f \"$ZED_PKG_TEST_TARGET/src/main.rs\" && test -f \"$ZED_PKG_TEST_TARGET/src/lib.rs\""
-exclude = [".env", ".env.*", ".direnv/**", ".zed/**", ".zed-pack/**", "target/**", "tmp/**", "**/*.log", ".DS_Store"]
+exclude = [".env", ".env.*", ".direnv/**", ".zed/**", ".zed-pack/**", ".vendor/.zed/**", "target/**", "tmp/**", "**/*.log", ".DS_Store"]
 
 # Cargo still names the messaging and telemetry siblings with `.rs` suffixes.
 # Valid Zed package slugs cannot reproduce those directories. This release pins
