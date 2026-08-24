@@ -5,6 +5,8 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
+use fiducia_messaging::subjects::EXECUTIONS_PROGRESS;
+
 use crate::agents::AgentProvider;
 
 pub const DEFAULT_FIDUCIA_NODE_ORG_ID: &str = "fiducia-ai-control-plane";
@@ -139,7 +141,7 @@ impl Config {
             event_ingest_url: env_opt("EVENT_INGEST_URL"),
             event_ingest_secret: env_opt("EVENT_INGEST_SECRET"),
             nats_url: env_opt("NATS_URL"),
-            nats_event_subject: env_or("NATS_EVENT_SUBJECT", "fiducia.executions.progress.v1"),
+            nats_event_subject: env_or("NATS_EVENT_SUBJECT", EXECUTIONS_PROGRESS),
             nats_outbox_dir: env_opt("NATS_OUTBOX_DIR")
                 .unwrap_or_else(|| format!("{log_dir}/nats-outbox")),
             nats_outbox_max_attempts: env_num("NATS_OUTBOX_MAX_ATTEMPTS", 100),

@@ -617,6 +617,7 @@ impl Nats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fiducia_messaging::subjects::EXECUTIONS_PROGRESS;
 
     fn test_outbox() -> PathBuf {
         std::env::temp_dir().join(format!("fiducia-nats-outbox-test-{}", Uuid::new_v4()))
@@ -633,7 +634,7 @@ mod tests {
     fn record(envelope: &MessageEnvelope<()>) -> OutboxRecord {
         OutboxRecord {
             message_id: envelope.message_id,
-            subject: "fiducia.executions.progress.v1".into(),
+            subject: EXECUTIONS_PROGRESS.into(),
             dedup_id: tenant_scoped_dedup_id(envelope.tenant_id, &envelope.idempotency_key),
             payload: envelope.encode().unwrap(),
             attempts: 0,
@@ -652,10 +653,8 @@ mod tests {
     async fn unconfigured_publishes_are_counted_as_skips() {
         let path = test_outbox();
         let nats = bare(None, path.clone(), 3);
-        nats.publish_event("fiducia.executions.progress.v1", &envelope())
-            .await;
-        nats.publish_event("fiducia.executions.progress.v1", &envelope())
-            .await;
+        nats.publish_event(EXECUTIONS_PROGRESS, &envelope()).await;
+        nats.publish_event(EXECUTIONS_PROGRESS, &envelope()).await;
 
         let snapshot = nats.snapshot();
         assert!(!snapshot.configured);
@@ -669,10 +668,8 @@ mod tests {
     async fn unreachable_broker_defers_durable_events_without_dropping_them() {
         let path = test_outbox();
         let nats = bare(Some("nats://127.0.0.1:1"), path.clone(), 3);
-        nats.publish_event("fiducia.executions.progress.v1", &envelope())
-            .await;
-        nats.publish_event("fiducia.executions.progress.v1", &envelope())
-            .await;
+        nats.publish_event(EXECUTIONS_PROGRESS, &envelope()).await;
+        nats.publish_event(EXECUTIONS_PROGRESS, &envelope()).await;
 
         let snapshot = nats.snapshot();
         assert_eq!(snapshot.outbox_pending, 2);
