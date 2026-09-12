@@ -20,6 +20,7 @@ pub mod http;
 pub mod messaging;
 pub mod nats;
 pub mod orchestrator;
+pub mod ores_log;
 pub mod prompt;
 pub mod sanitize;
 pub mod state;
