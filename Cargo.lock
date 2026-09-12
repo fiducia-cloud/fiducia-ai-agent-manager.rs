@@ -592,6 +592,7 @@ dependencies = [
  "fiducia-messaging",
  "fiducia-telemetry",
  "futures",
+ "oresoftware-next-loggers",
  "parking_lot",
  "regex",
  "reqwest 0.12.28",
@@ -1550,6 +1551,16 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "oresoftware-next-loggers"
+version = "0.1.0"
+source = "git+https://github.com/ores-otel/ores.otel.log?rev=4a9d90b1059af268e94b47eeb4210d9454686f9a#4a9d90b1059af268e94b47eeb4210d9454686f9a"
+dependencies = [
+ "serde",
+ "serde_json",
+ "time",
 ]
 
 [[package]]
