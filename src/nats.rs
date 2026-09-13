@@ -265,6 +265,7 @@ impl Nats {
     }
 
     async fn client(&self) -> Option<async_nats::Client> {
+        const ROUTINE_ID: &str = "ores-routine-iFSdjwzuA26xFNCjYus5H";
         let url = self.url.as_ref()?;
         let mut connection = self.connection.lock().await;
         if let Some(client) = connection.client.as_ref() {
@@ -293,6 +294,16 @@ impl Nats {
                     retry_after_seconds = CONNECT_RETRY.as_secs(),
                     "NATS connect failed; durable events remain in the outbox"
                 );
+                let _ = crate::ores_log::logger()
+                    .warn(vec![
+                        serde_json::json!(
+                            "NATS connect failed; durable events remain in the outbox"
+                        ),
+                        serde_json::json!({ "retry_after_seconds": CONNECT_RETRY.as_secs() }),
+                    ])
+                    .add_trace("ores-trace-KDOmtGsXIpSqkJ2ZsrWRx", false)
+                    .add_routine_id(ROUTINE_ID)
+                    .send();
                 None
             }
         }
@@ -367,6 +378,7 @@ impl Nats {
     /// Persist a durable lifecycle event before attempting JetStream. A failed
     /// or ambiguous publish remains queued; Core NATS is never used here.
     pub async fn publish_event<T: Serialize>(&self, subject: &str, envelope: &MessageEnvelope<T>) {
+        const ROUTINE_ID: &str = "ores-routine-AxMymuHFh-BybsRJjsUVz";
         if self.url.is_none() {
             self.unconfigured_skips.fetch_add(1, Ordering::Relaxed);
             return;
@@ -376,6 +388,13 @@ impl Nats {
             Err(error) => {
                 self.serialization_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!(subject, error = %error, "refusing to queue invalid NATS envelope");
+                let _ = crate::ores_log::logger()
+                    .warn(vec![serde_json::json!(
+                        "refusing to queue invalid NATS envelope"
+                    )])
+                    .add_trace("ores-trace--WAW8oLG7mRWmzujyn2EU", false)
+                    .add_routine_id(ROUTINE_ID)
+                    .send();
                 return;
             }
         };
@@ -393,6 +412,13 @@ impl Nats {
         if let Err(error) = self.persist_record(&record).await {
             self.outbox_persist_failures.fetch_add(1, Ordering::Relaxed);
             tracing::error!(subject, error = %error, "failed to persist durable NATS event");
+            let _ = crate::ores_log::logger()
+                .error(vec![serde_json::json!(
+                    "failed to persist durable NATS event"
+                )])
+                .add_trace("ores-trace-ZR3cCOSyCAHdyQv1q6c-L", false)
+                .add_routine_id(ROUTINE_ID)
+                .send();
             return;
         }
         self.drain_locked().await;
@@ -400,6 +426,7 @@ impl Nats {
 
     /// Disposable live progress -> Core NATS (at-most-once, low latency).
     pub async fn publish_live(&self, subject: &str, payload: &[u8]) {
+        const ROUTINE_ID: &str = "ores-routine-OrsCTqf-7MRAORD7E_7R5";
         let Some(client) = self.client().await else {
             if self.url.is_some() {
                 self.unavailable_drops.fetch_add(1, Ordering::Relaxed);
@@ -419,6 +446,11 @@ impl Nats {
                 self.publish_failures.fetch_add(1, Ordering::Relaxed);
                 self.unavailable_drops.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!(subject, "Core NATS live publish failed");
+                let _ = crate::ores_log::logger()
+                    .warn(vec![serde_json::json!("Core NATS live publish failed")])
+                    .add_trace("ores-trace-0EbYL99_Nq-DFK4oBRpin", false)
+                    .add_routine_id(ROUTINE_ID)
+                    .send();
                 self.invalidate_client().await;
             }
         }
@@ -448,11 +480,19 @@ impl Nats {
     }
 
     async fn drain_locked(&self) {
+        const ROUTINE_ID: &str = "ores-routine-KIl_Ep7IW5o0oxFBAPaeR";
         let records = match self.pending_records().await {
             Ok(records) => records,
             Err(error) => {
                 self.outbox_persist_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::error!(error = %error, "failed to read durable NATS outbox");
+                let _ = crate::ores_log::logger()
+                    .error(vec![serde_json::json!(
+                        "failed to read durable NATS outbox"
+                    )])
+                    .add_trace("ores-trace-JSIB-GLv3PtTjH4Rl716P", false)
+                    .add_routine_id(ROUTINE_ID)
+                    .send();
                 return;
             }
         };
@@ -463,6 +503,13 @@ impl Nats {
                 if let Err(error) = self.move_to_dead_letter(&record).await {
                     self.outbox_persist_failures.fetch_add(1, Ordering::Relaxed);
                     tracing::error!(error = %error, "failed to quarantine NATS outbox event");
+                    let _ = crate::ores_log::logger()
+                        .error(vec![serde_json::json!(
+                            "failed to quarantine NATS outbox event"
+                        )])
+                        .add_trace("ores-trace-RHcE2OSfGsWx_6rSux1Xf", false)
+                        .add_routine_id(ROUTINE_ID)
+                        .send();
                     return;
                 }
             } else if record.next_attempt_at_ms <= now_ms {
@@ -489,11 +536,25 @@ impl Nats {
             if let Err(error) = self.finalize_delivery(record, outcome, now_ms).await {
                 self.outbox_persist_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::error!(error = %error, "failed to update durable NATS outbox");
+                let _ = crate::ores_log::logger()
+                    .error(vec![serde_json::json!(
+                        "failed to update durable NATS outbox"
+                    )])
+                    .add_trace("ores-trace-fDzPRwTJUAsXgKplLTfkq", false)
+                    .add_routine_id(ROUTINE_ID)
+                    .send();
                 return;
             }
             if outcome == DeliveryOutcome::Unacknowledged {
                 self.publish_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!("JetStream publish was not acknowledged; event remains durable");
+                let _ = crate::ores_log::logger()
+                    .warn(vec![serde_json::json!(
+                        "JetStream publish was not acknowledged; event remains durable"
+                    )])
+                    .add_trace("ores-trace-Er6_tVkdVSYZRxiUo7jac", false)
+                    .add_routine_id(ROUTINE_ID)
+                    .send();
                 self.invalidate_client().await;
                 return;
             }
