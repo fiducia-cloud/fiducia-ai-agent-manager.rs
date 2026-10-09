@@ -218,6 +218,7 @@ env-keygen: _env-dec
     age-keygen -y "$key"
 
 # Fail-closed audit: no plaintext in git, gitignore intact, ciphertext valid.
+# Audit checks are key-independent; do not depend on the ores-sops bootstrap.
 [group('env')]
 env-check:
     #!/usr/bin/env bash
