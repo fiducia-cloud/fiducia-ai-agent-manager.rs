@@ -87,6 +87,19 @@ jobs:
       - name: Format
         working-directory: repo
         run: cargo fmt --all -- --check
+      - name: Diagnose pinned graph Cargo.lock drift
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 >/dev/null
+          if ! git diff --quiet -- Cargo.lock; then
+            echo "::group::Cargo.lock graph drift"
+            git --no-pager diff -- Cargo.lock
+            echo "::endgroup::"
+            echo "::error::Committed Cargo.lock is inconsistent with checked-out dependency refs"
+            exit 1
+          fi
       - name: Clippy
         working-directory: repo
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
