@@ -1,6 +1,6 @@
 # Build context is the fiducia.cloud root. Cross-repository path dependencies
 # are fetched at reviewed commits rather than copied from a moving checkout.
-FROM rust:1.99.0-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS build
+FROM rust:1.100.0-bookworm@sha256:ade39a710ef85f3506cffcfec3e8a24ba090badef1dff2fb798f71d878833fea AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates
 WORKDIR /workspace
